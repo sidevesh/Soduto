@@ -89,7 +89,6 @@ public class MPRISService: Service, DownloadTaskDelegate {
     @Published private var players: [String: [PlayerRemote]] = [:]
     /// Keeps track of the last player that was playing
     private var lastActivePlayer: PlayerRemote? = nil
-    private var nowPlayingInfoCenter = MPNowPlayingInfoCenter.default()
     private var commandCenter = MPRemoteCommandCenter.shared()
     
     /// Local media players that can be controlled by remote devices
@@ -1218,9 +1217,6 @@ class MediaRemotePlayer: PlayerLocal {
         // Register for now playing notifications
         registerForNotifications()
         
-        // Also try to listen to MPNowPlayingInfoCenter as a fallback
-        setupMPNowPlayingInfoCenterFallback()
-        
         // Initial fetch of now playing info
         fetchNowPlayingInfo()
         
@@ -1228,87 +1224,17 @@ class MediaRemotePlayer: PlayerLocal {
         Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.fetchNowPlayingInfo()
         }
-        
-        // Also try to get info from MPNowPlayingInfoCenter periodically
-        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            self?.checkMPNowPlayingInfoCenter()
-        }
     }
     
-    private func setupMPNowPlayingInfoCenterFallback() {
-        // Try to get information from the system's MPNowPlayingInfoCenter
-        // This might have different permission requirements
-        Log.debug?.message("MediaRemotePlayer: Setting up MPNowPlayingInfoCenter fallback")
-    }
-    
-    private func checkMPNowPlayingInfoCenter() {
-        // Try to get now playing info from MPNowPlayingInfoCenter as a fallback
-        let infoCenter = MPNowPlayingInfoCenter.default()
-        if let nowPlayingInfo = infoCenter.nowPlayingInfo, !nowPlayingInfo.isEmpty {
-            Log.debug?.message("MediaRemotePlayer: Got info from MPNowPlayingInfoCenter: \(nowPlayingInfo.keys)")
-            updateFromMPNowPlayingInfo(nowPlayingInfo)
-        }
-    }
-    
-    private func updateFromMPNowPlayingInfo(_ nowPlayingInfo: [String: Any]) {
-        var hasChanges = false
-        
-        if let newTitle = nowPlayingInfo[MPMediaItemPropertyTitle] as? String, newTitle != title {
-            title = newTitle
-            hasChanges = true
-            Log.debug?.message("MediaRemotePlayer: Updated title from MPNowPlayingInfoCenter: \(title)")
-        }
-        
-        if let newArtist = nowPlayingInfo[MPMediaItemPropertyArtist] as? String, newArtist != artist {
-            artist = newArtist
-            hasChanges = true
-            Log.debug?.message("MediaRemotePlayer: Updated artist from MPNowPlayingInfoCenter: \(artist)")
-        }
-        
-        if let newAlbum = nowPlayingInfo[MPMediaItemPropertyAlbumTitle] as? String, newAlbum != album {
-            album = newAlbum
-            hasChanges = true
-            Log.debug?.message("MediaRemotePlayer: Updated album from MPNowPlayingInfoCenter: \(album)")
-        }
-        
-        if let duration = nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] as? TimeInterval {
-            let newLength = Int(duration)
-            if newLength != length {
-                length = newLength
-                hasChanges = true
-                Log.debug?.message("MediaRemotePlayer: Updated length from MPNowPlayingInfoCenter: \(length)s")
-            }
-        }
-        
-        if let elapsed = nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? TimeInterval {
-            let newPosition = Int(elapsed)
-            if newPosition != position {
-                position = newPosition
-                hasChanges = true
-                Log.debug?.message("MediaRemotePlayer: Updated position from MPNowPlayingInfoCenter: \(position)s")
-            }
-        }
-        
-        if let playbackRate = nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] as? Double {
-            let newIsPlaying = playbackRate > 0
-            if newIsPlaying != isPlaying {
-                isPlaying = newIsPlaying
-                hasChanges = true
-                Log.debug?.message("MediaRemotePlayer: Updated playing state from MPNowPlayingInfoCenter: \(isPlaying)")
-            }
-        }
-        
-        if hasChanges {
-            lastUpdateTime = Date()
-            onStateChanged?()
-        }
-    }
+
     
     deinit {
         unregisterFromNotifications()
     }
     
     private func loadMediaRemoteFramework() {
+        Log.debug?.message("MediaRemotePlayer: Loading MediaRemote framework...")
+        
         // Load MediaRemote framework
         guard let bundle = CFBundleCreate(kCFAllocatorDefault, 
                                         NSURL(fileURLWithPath: "/System/Library/PrivateFrameworks/MediaRemote.framework")) else {
@@ -1317,68 +1243,97 @@ class MediaRemotePlayer: PlayerLocal {
         }
         
         mediaRemoteBundle = bundle
+        Log.debug?.message("MediaRemotePlayer: MediaRemote framework bundle loaded successfully")
         
         // Get function pointers
+        var loadedFunctions = 0
+        
         if let getNowPlayingPointer = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteGetNowPlayingInfo" as CFString) {
             MRMediaRemoteGetNowPlayingInfo = unsafeBitCast(getNowPlayingPointer, to: MRMediaRemoteGetNowPlayingInfoFunction.self)
+            loadedFunctions += 1
+            Log.debug?.message("MediaRemotePlayer: ✓ Loaded MRMediaRemoteGetNowPlayingInfo")
+        } else {
+            Log.error?.message("MediaRemotePlayer: ✗ Failed to load MRMediaRemoteGetNowPlayingInfo")
         }
         
         if let getBundleIdPointer = CFBundleGetFunctionPointerForName(bundle, "MRNowPlayingClientGetBundleIdentifier" as CFString) {
             MRNowPlayingClientGetBundleIdentifier = unsafeBitCast(getBundleIdPointer, to: MRNowPlayingClientGetBundleIdentifierFunction.self)
+            loadedFunctions += 1
+            Log.debug?.message("MediaRemotePlayer: ✓ Loaded MRNowPlayingClientGetBundleIdentifier")
+        } else {
+            Log.warning?.message("MediaRemotePlayer: ✗ Failed to load MRNowPlayingClientGetBundleIdentifier (app identification may not work)")
         }
         
         if let setCanBeNowPlayingPointer = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteSetCanBeNowPlayingApplication" as CFString) {
             MRMediaRemoteSetCanBeNowPlayingApplication = unsafeBitCast(setCanBeNowPlayingPointer, to: MRMediaRemoteSetCanBeNowPlayingApplicationFunction.self)
+            loadedFunctions += 1
+            Log.debug?.message("MediaRemotePlayer: ✓ Loaded MRMediaRemoteSetCanBeNowPlayingApplication")
+        } else {
+            Log.warning?.message("MediaRemotePlayer: ✗ Failed to load MRMediaRemoteSetCanBeNowPlayingApplication")
         }
         
         if let registerNotificationsPointer = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteRegisterForNowPlayingNotifications" as CFString) {
             MRMediaRemoteRegisterForNowPlayingNotifications = unsafeBitCast(registerNotificationsPointer, to: MRMediaRemoteRegisterForNowPlayingNotificationsFunction.self)
+            loadedFunctions += 1
+            Log.debug?.message("MediaRemotePlayer: ✓ Loaded MRMediaRemoteRegisterForNowPlayingNotifications")
+        } else {
+            Log.warning?.message("MediaRemotePlayer: ✗ Failed to load MRMediaRemoteRegisterForNowPlayingNotifications (notifications may not work)")
         }
         
         if let unregisterNotificationsPointer = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteUnregisterForNowPlayingNotifications" as CFString) {
             MRMediaRemoteUnregisterForNowPlayingNotifications = unsafeBitCast(unregisterNotificationsPointer, to: MRMediaRemoteUnregisterForNowPlayingNotificationsFunction.self)
+            loadedFunctions += 1
+            Log.debug?.message("MediaRemotePlayer: ✓ Loaded MRMediaRemoteUnregisterForNowPlayingNotifications")
+        } else {
+            Log.warning?.message("MediaRemotePlayer: ✗ Failed to load MRMediaRemoteUnregisterForNowPlayingNotifications")
         }
         
         if let sendCommandPointer = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteSendCommand" as CFString) {
             MRMediaRemoteSendCommand = unsafeBitCast(sendCommandPointer, to: MRMediaRemoteSendCommandFunction.self)
+            loadedFunctions += 1
+            Log.debug?.message("MediaRemotePlayer: ✓ Loaded MRMediaRemoteSendCommand")
+        } else {
+            Log.error?.message("MediaRemotePlayer: ✗ Failed to load MRMediaRemoteSendCommand (media control will not work)")
         }
         
-        Log.debug?.message("MediaRemotePlayer: Successfully loaded MediaRemote framework functions")
+        Log.info?.message("MediaRemotePlayer: Successfully loaded \(loadedFunctions)/6 MediaRemote framework functions")
+        
+        if loadedFunctions < 6 {
+            Log.warning?.message("MediaRemotePlayer: Some MediaRemote functions failed to load - functionality may be limited")
+        }
+        
         Log.info?.message("MediaRemotePlayer: Note - MediaRemote control may require additional entitlements or code signing for full functionality")
     }
     
     private func registerForNotifications() {
         guard let registerFunc = MRMediaRemoteRegisterForNowPlayingNotifications else { 
-            Log.warning?.message("MediaRemotePlayer: MRMediaRemoteRegisterForNowPlayingNotifications function not available")
+            Log.warning?.message("MediaRemotePlayer: MRMediaRemoteRegisterForNowPlayingNotifications function not available - notifications will not work")
             return 
         }
+        
+        Log.debug?.message("MediaRemotePlayer: Registering for MediaRemote notifications...")
         
         // Register for notifications on main queue
         registerFunc(DispatchQueue.main)
         
         // Listen for now playing info changed notifications
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(nowPlayingInfoChanged),
-            name: NSNotification.Name("kMRMediaRemoteNowPlayingInfoDidChangeNotification"),
-            object: nil
-        )
+        let notificationNames = [
+            "kMRMediaRemoteNowPlayingInfoDidChangeNotification",
+            "kMRMediaRemoteNowPlayingApplicationDidChangeNotification", 
+            "kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification"
+        ]
         
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(nowPlayingInfoChanged),
-            name: NSNotification.Name("kMRMediaRemoteNowPlayingApplicationDidChangeNotification"),
-            object: nil
-        )
+        for notificationName in notificationNames {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(nowPlayingInfoChanged),
+                name: NSNotification.Name(notificationName),
+                object: nil
+            )
+            Log.debug?.message("MediaRemotePlayer: ✓ Registered for \(notificationName)")
+        }
         
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(nowPlayingInfoChanged),
-            name: NSNotification.Name("kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification"),
-            object: nil
-        )
-        
-        Log.debug?.message("MediaRemotePlayer: Registered for MediaRemote notifications")
+        Log.info?.message("MediaRemotePlayer: Successfully registered for \(notificationNames.count) MediaRemote notifications")
     }
     
     private func unregisterFromNotifications() {
@@ -1390,8 +1345,8 @@ class MediaRemotePlayer: PlayerLocal {
         Log.debug?.message("MediaRemotePlayer: Unregistered from MediaRemote notifications")
     }
     
-    @objc private func nowPlayingInfoChanged() {
-        Log.debug?.message("MediaRemotePlayer: Now playing info changed notification received")
+    @objc private func nowPlayingInfoChanged(_ notification: Notification) {
+        Log.info?.message("MediaRemotePlayer: 🔔 Received MediaRemote notification: \(notification.name.rawValue)")
         fetchNowPlayingInfo()
     }
     
@@ -1401,16 +1356,28 @@ class MediaRemotePlayer: PlayerLocal {
             return 
         }
         
-        Log.debug?.message("MediaRemotePlayer: Fetching now playing info...")
+        Log.debug?.message("MediaRemotePlayer: Requesting now playing info from MediaRemote...")
         
         getNowPlayingFunc(DispatchQueue.main) { [weak self] information in
-            Log.debug?.message("MediaRemotePlayer: Received now playing info callback with \(information.count) keys")
             if information.isEmpty {
-                Log.debug?.message("MediaRemotePlayer: No media information available - likely permission issue or no active player")
+                Log.debug?.message("MediaRemotePlayer: ⚠️ No media information received - likely permission issue or no active player")
                 // Try to set a basic state indicating we're ready but have no media info
                 self?.updateBasicPlayerState()
             } else {
-                Log.debug?.message("MediaRemotePlayer: Processing media information: \(Array(information.keys))")
+                Log.info?.message("MediaRemotePlayer: ✅ Received media information with \(information.count) keys")
+                Log.debug?.message("MediaRemotePlayer: Available information keys: \(Array(information.keys).sorted())")
+                
+                // Log some key values for debugging
+                if let artist = information["kMRMediaRemoteNowPlayingInfoArtist"] as? String {
+                    Log.debug?.message("MediaRemotePlayer: 🎵 Artist: \(artist)")
+                }
+                if let title = information["kMRMediaRemoteNowPlayingInfoTitle"] as? String {
+                    Log.debug?.message("MediaRemotePlayer: 🎵 Title: \(title)")
+                }
+                if let bundleId = information["kMRMediaRemoteNowPlayingInfoClientPropertiesData"] {
+                    Log.debug?.message("MediaRemotePlayer: 📱 Has app bundle data")
+                }
+                
                 self?.updateFromNowPlayingInfo(information)
             }
         }
@@ -1432,7 +1399,7 @@ class MediaRemotePlayer: PlayerLocal {
     }
     
     private func updateFromNowPlayingInfo(_ information: [String: Any]) {
-        Log.debug?.message("MediaRemotePlayer: Updating from now playing info with \(information.count) keys")
+        Log.debug?.message("MediaRemotePlayer: 🔄 Processing now playing information...")
         
         // Log available keys for debugging
         if information.isEmpty {
@@ -1441,43 +1408,53 @@ class MediaRemotePlayer: PlayerLocal {
         }
         
         var hasChanges = false
+        var changesSummary: [String] = []
         
         // Update basic track info
         if let newArtist = information["kMRMediaRemoteNowPlayingInfoArtist"] as? String, newArtist != artist {
+            let oldArtist = artist
             artist = newArtist.isEmpty ? "" : newArtist
             hasChanges = true
-            Log.debug?.message("MediaRemotePlayer: Updated artist: \(artist)")
+            changesSummary.append("artist: '\(oldArtist)' → '\(artist)'")
         }
         
         if let newTitle = information["kMRMediaRemoteNowPlayingInfoTitle"] as? String, newTitle != title {
+            let oldTitle = title
             title = newTitle.isEmpty ? "" : newTitle
             hasChanges = true
-            Log.debug?.message("MediaRemotePlayer: Updated title: \(title)")
+            changesSummary.append("title: '\(oldTitle)' → '\(title)'")
         }
         
         if let newAlbum = information["kMRMediaRemoteNowPlayingInfoAlbum"] as? String, newAlbum != album {
+            let oldAlbum = album
             album = newAlbum.isEmpty ? "" : newAlbum
             hasChanges = true
-            Log.debug?.message("MediaRemotePlayer: Updated album: \(album)")
+            changesSummary.append("album: '\(oldAlbum)' → '\(album)'")
         }
         
         // Update duration
         if let duration = information["kMRMediaRemoteNowPlayingInfoDuration"] as? Double {
             let newLength = Int(duration)
             if newLength != length {
+                let oldLength = length
                 length = newLength
                 hasChanges = true
-                Log.debug?.message("MediaRemotePlayer: Updated length: \(length)s")
+                changesSummary.append("duration: \(oldLength)s → \(length)s")
             }
         }
         
         // Update position
         if let elapsed = information["kMRMediaRemoteNowPlayingInfoElapsedTime"] as? Double {
             let newPosition = Int(elapsed)
-            if newPosition != position {
+            if abs(newPosition - position) > 2 { // Only log significant position changes
+                let oldPosition = position
                 position = newPosition
                 hasChanges = true
-                Log.debug?.message("MediaRemotePlayer: Updated position: \(position)s")
+                changesSummary.append("position: \(oldPosition)s → \(position)s")
+            } else if newPosition != position {
+                // Update position without logging for minor changes
+                position = newPosition
+                hasChanges = true
             }
         }
         
@@ -1487,7 +1464,7 @@ class MediaRemotePlayer: PlayerLocal {
             if newIsPlaying != isPlaying {
                 isPlaying = newIsPlaying
                 hasChanges = true
-                Log.debug?.message("MediaRemotePlayer: Updated playing state: \(isPlaying)")
+                changesSummary.append("playing: \(!isPlaying) → \(isPlaying)")
             }
         }
         
@@ -1495,18 +1472,20 @@ class MediaRemotePlayer: PlayerLocal {
         if let clientPropertiesData = information["kMRMediaRemoteNowPlayingInfoClientPropertiesData"] {
             if let bundleId = getBundleIdentifierFromClientProperties(clientPropertiesData) {
                 if currentAppBundleId != bundleId {
+                    let oldAppName = currentAppName
                     currentAppBundleId = bundleId
                     currentAppName = getAppNameFromBundleId(bundleId)
-                    Log.debug?.message("MediaRemotePlayer: Now playing from app: \(bundleId) (\(currentAppName))")
                     hasChanges = true
+                    changesSummary.append("app: '\(oldAppName)' → '\(currentAppName)' (\(bundleId))")
                 }
             }
         } else if !currentAppBundleId.isEmpty {
             // No app is currently playing
+            let oldAppName = currentAppName
             currentAppBundleId = ""
             currentAppName = ""
             hasChanges = true
-            Log.debug?.message("MediaRemotePlayer: No app currently playing")
+            changesSummary.append("app: '\(oldAppName)' → 'No app playing'")
         }
         
         // Update artwork URL if available
@@ -1524,7 +1503,14 @@ class MediaRemotePlayer: PlayerLocal {
         
         if hasChanges {
             lastUpdateTime = Date()
-            Log.debug?.message("MediaRemotePlayer: Updated track info: \(artist) - \(title) (\(album)) playing: \(isPlaying)")
+            if !changesSummary.isEmpty {
+                Log.info?.message("MediaRemotePlayer: ✅ Updated: \(changesSummary.joined(separator: ", "))")
+            }
+            
+            // Trigger state change callback
+            onStateChanged?()
+        } else {
+            Log.debug?.message("MediaRemotePlayer: No changes detected")
         }
     }
     
@@ -1678,15 +1664,15 @@ class MediaRemotePlayer: PlayerLocal {
     
     private func sendMediaRemoteCommand(_ command: MRCommand) {
         guard let sendCommandFunc = MRMediaRemoteSendCommand else {
-            Log.error?.message("MediaRemotePlayer: MRMediaRemoteSendCommand function not available")
+            Log.error?.message("MediaRemotePlayer: ❌ MRMediaRemoteSendCommand function not available - media control will not work")
             return
         }
         
-        Log.debug?.message("MediaRemotePlayer: Attempting to send command \(command)")
+        Log.info?.message("MediaRemotePlayer: 📤 Sending \(command) command to system...")
         let success = sendCommandFunc(command.rawValue, nil)
         
         if success {
-            Log.debug?.message("MediaRemotePlayer: Successfully sent command \(command)")
+            Log.info?.message("MediaRemotePlayer: ✅ Successfully sent \(command) command")
             
             // Force trigger state change callback to notify connected devices
             onStateChanged?()
@@ -1699,8 +1685,12 @@ class MediaRemotePlayer: PlayerLocal {
                 self?.fetchNowPlayingInfo()
             }
         } else {
-            Log.warning?.message("MediaRemotePlayer: Failed to send command \(command) - likely due to insufficient permissions or no active media player")
-            Log.warning?.message("MediaRemotePlayer: This may indicate that Soduto needs additional entitlements or the app needs to be code-signed for MediaRemote access")
+            Log.warning?.message("MediaRemotePlayer: ❌ Failed to send \(command) command")
+            Log.warning?.message("MediaRemotePlayer: This could be due to:")
+            Log.warning?.message("MediaRemotePlayer: • No active media player")
+            Log.warning?.message("MediaRemotePlayer: • Insufficient app permissions/entitlements")
+            Log.warning?.message("MediaRemotePlayer: • App needs to be properly code-signed")
+            Log.warning?.message("MediaRemotePlayer: • MediaRemote restrictions in sandbox environment")
         }
     }
     
@@ -1737,7 +1727,7 @@ class MediaRemotePlayer: PlayerLocal {
 class PlayerLocal: NSObject {
     
     // Player identity and metadata
-    private(set) var identity: String
+    internal(set) var identity: String
     var isPlaying: Bool = false {
         didSet {
             if isPlaying != oldValue {
