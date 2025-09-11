@@ -99,6 +99,8 @@ public class MPRISService: Service, DownloadTaskDelegate {
     // MARK: Initialization
     
     public init() {
+        Log.info?.message("MPRIS::🎵 Initializing MPRIS Service for macOS media player control")
+        
         setupCommandCenter()
         setupLocalPlayers()
         
@@ -107,6 +109,8 @@ public class MPRISService: Service, DownloadTaskDelegate {
             self?.cleanupOldCacheFiles()
             self?.logCacheStats()
         }
+        
+        Log.info?.message("MPRIS::✅ MPRIS Service initialization complete - Ready to control \(localPlayers.count) local players from remote devices")
     }
     
     // MARK: Service methods
@@ -130,18 +134,19 @@ public class MPRISService: Service, DownloadTaskDelegate {
     }
     
     public func setup(for device: Device) {
-        Log.debug?.message("MPRIS::Setting up service for device: \(device.name)")
+        Log.info?.message("MPRIS::📱 Setting up MPRIS service for device: \(device.name)")
         
         // Track connected devices
         connectedDevices[device.id] = device
         
         // Request remote player list
+        Log.debug?.message("MPRIS::Requesting player list from \(device.name)")
         requestPlayerList(from: device)
         
         // Send our local player list after a small delay to ensure the device is ready
-        Log.debug?.message("MPRIS::Scheduling player list send to \(device.name), we have \(localPlayers.count) local players")
+        Log.info?.message("MPRIS::Preparing to share \(localPlayers.count) local players with \(device.name): \(Array(localPlayers.keys).joined(separator: ", "))")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            Log.debug?.message("MPRIS::Sending delayed player list to \(device.name)")
+            Log.info?.message("MPRIS::📤 Sending player list to \(device.name)")
             self?.sendPlayerList(to: device)
         }
     }
@@ -305,22 +310,33 @@ public class MPRISService: Service, DownloadTaskDelegate {
     private func setupLocalPlayers() {
         Log.debug?.message("MPRIS::Setting up local players")
         
-        // Create a real media remote player with dynamic naming
-        let mediaRemotePlayer = MediaRemotePlayer(identity: "macOS.NowPlaying")
+        // Create MediaRemoteAdapter-based players for real macOS integration
+        setupMediaRemoteAdapterPlayers()
         
-        // Check if MediaRemote framework loaded successfully
-        if mediaRemotePlayer.isMediaRemoteAvailable {
-            // Set up state change callback that also handles player identity changes
-            mediaRemotePlayer.onStateChanged = { [weak self] in
-                Log.debug?.message("MPRIS::MediaRemote player state changed, broadcasting update")
-                self?.handleMediaRemotePlayerUpdate(mediaRemotePlayer)
-            }
-            
-            localPlayers[mediaRemotePlayer.identity] = mediaRemotePlayer
-            Log.debug?.message("MPRIS::Created MediaRemote local player: \(mediaRemotePlayer.identity)")
-        } else {
-            Log.error?.message("MPRIS::MediaRemote framework not available - no local players will be available")
-        }
+        // Setup callbacks for state change broadcasting
+        setupMediaRemotePlayerCallbacks()
+        
+        // Maintain compatibility with existing MediaRemote implementation
+        setupMediaRemotePlayer()
+    }
+    
+    private func setupMediaRemoteAdapterPlayers() {
+        Log.info?.message("MPRIS::Setting up MediaRemoteAdapter-based players for real macOS media control")
+        
+        // Create MediaRemoteAdapter player that interfaces with the perl script
+        // Start with a generic identity that will be updated based on actual playing app
+        let mediaRemoteAdapterPlayer = MediaRemoteAdapterPlayer(identity: "macOS.MediaRemote")
+        mediaRemoteAdapterPlayer.parentService = self // Set parent reference for identity updates
+        localPlayers[mediaRemoteAdapterPlayer.identity] = mediaRemoteAdapterPlayer
+        Log.debug?.message("MPRIS::✓ Created MediaRemoteAdapter player - \(mediaRemoteAdapterPlayer.identity)")
+        
+        Log.info?.message("MPRIS::✓ MediaRemoteAdapter player setup complete with \(localPlayers.count) players: \(Array(localPlayers.keys).joined(separator: ", "))")
+    }
+    
+    private func setupMediaRemotePlayer() {
+        // We'll keep the existing MediaRemote functionality if available
+        // This will be enhanced in future iterations
+        Log.debug?.message("MPRIS::MediaRemote integration will be enhanced in future versions")
     }
     
     private func handleMediaRemotePlayerUpdate(_ player: MediaRemotePlayer) {
@@ -360,8 +376,55 @@ public class MPRISService: Service, DownloadTaskDelegate {
         broadcastPlayerUpdate(player)
     }
     
+    /// Setup state change callbacks for MediaRemoteAdapter players to broadcast updates
+    private func setupMediaRemotePlayerCallbacks() {
+        for (_, player) in localPlayers {
+            player.onStateChanged = { [weak self] in
+                Log.debug?.message("MPRIS::MediaRemoteAdapter player \(player.identity) state changed, broadcasting update")
+                self?.broadcastPlayerUpdate(player)
+            }
+        }
+        
+        Log.debug?.message("MPRIS::Set up state change callbacks for \(localPlayers.count) MediaRemoteAdapter players")
+    }
+    
+    /// Update a local player's identity when the active app changes
+    func updateLocalPlayerIdentity(from oldIdentity: String, to newIdentity: String, player: PlayerLocal) {
+        // Remove from old identity
+        localPlayers.removeValue(forKey: oldIdentity)
+        
+        // Add with new identity
+        localPlayers[newIdentity] = player
+        
+        Log.info?.message("MPRIS::Player identity updated: '\(oldIdentity)' → '\(newIdentity)'")
+        
+        // Broadcast updated player list to all connected devices
+        for (_, device) in connectedDevices {
+            Log.debug?.message("MPRIS::Sending updated player list to \(device.name) due to identity change")
+            sendPlayerList(to: device)
+        }
+    }
+    
+    /// Debug method to print current state of all local players
+    private func logPlayerStates() {
+        Log.info?.message("MPRIS::📊 Current Local Player States:")
+        for (identity, player) in localPlayers {
+            let state = player.isPlaying ? "▶️ Playing" : "⏸️ Paused"
+            let track = "\(player.artist) - \(player.title)".isEmpty ? "No track" : "\(player.artist) - \(player.title)"
+            let position = "\(player.position)/\(player.length)s"
+            Log.info?.message("MPRIS::   \(identity): \(state) | \(track) | \(position) | Vol:\(player.volume)%")
+        }
+        Log.info?.message("MPRIS::📱 Connected devices: \(connectedDevices.count)")
+        for (deviceId, device) in connectedDevices {
+            Log.info?.message("MPRIS::   \(device.name) (\(deviceId))")
+        }
+    }
+    
     private func handlePlayerCommand(action: String, player: PlayerLocal, fromDevice device: Device) {
-        Log.debug?.message("MPRIS::Handling action '\(action)' for player \(player.identity) from \(device.name)")
+        Log.info?.message("MPRIS::🎮 Remote control: \(device.name) sent '\(action)' command to \(player.identity)")
+        
+        let oldState = player.isPlaying
+        let oldTrack = "\(player.artist) - \(player.title)"
         
         switch action {
         case "Play":
@@ -377,16 +440,30 @@ public class MPRISService: Service, DownloadTaskDelegate {
         case "Stop":
             player.stop()
         default:
-            Log.warning?.message("MPRIS::Unknown action: \(action)")
+            Log.warning?.message("MPRIS::❌ Unknown action: \(action)")
             return
         }
         
+        // Log the state change
+        let newState = player.isPlaying
+        let newTrack = "\(player.artist) - \(player.title)"
+        
+        if oldState != newState {
+            let stateDesc = newState ? "▶️ Playing" : "⏸️ Paused"
+            Log.info?.message("MPRIS::   State changed to: \(stateDesc)")
+        }
+        
+        if oldTrack != newTrack && action == "Next" || action == "Previous" {
+            Log.info?.message("MPRIS::   Track changed to: \(newTrack)")
+        }
+        
         // Send updated player state
+        Log.debug?.message("MPRIS::Sending state update back to \(device.name)")
         sendPlayerUpdate(player, to: device)
     }
     
     private func sendPlayerList(to device: Device) {
-        let playerIdentities = Array(localPlayers.keys)
+        let playerIdentities = Array(localPlayers.keys).sorted() // Sort for consistency
         Log.debug?.message("MPRIS::Sending player list to \(device.name): \(playerIdentities)")
         
         // Create the packet body exactly like GSConnect does
@@ -399,20 +476,20 @@ public class MPRISService: Service, DownloadTaskDelegate {
         device.send(packet)
         
         // Also send initial state for each player (like GSConnect does)
-        for (_, player) in localPlayers {
-            Log.debug?.message("MPRIS::Sending initial state for player: \(player.identity)")
-            sendPlayerUpdate(player, to: device)
+        // Send updates after a small delay to ensure the remote device processes the player list first
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self = self else { return }
+            Log.info?.message("MPRIS::Sending initial player states to \(device.name) (\(self.localPlayers.count) players)")
+            for (_, player) in self.localPlayers {
+                Log.debug?.message("MPRIS::Sending initial state for player: \(player.identity)")
+                self.sendPlayerUpdate(player, to: device)
+            }
         }
     }
     
     private func sendPlayerUpdate(_ player: PlayerLocal, to device: Device) {
-        let state = player.getCurrentState()
-        Log.debug?.message("MPRIS::Sending player update for \(player.identity) to \(device.name)")
-        Log.debug?.message("MPRIS::Player state: \(state)")
-        
-        let packet = DataPacket.mprisUpdatePacket(state: state)
-        Log.debug?.message("MPRIS::Update packet body: \(packet.body)")
-        device.send(packet)
+        // Use the comprehensive update method for better GSConnect compatibility
+        sendComprehensivePlayerUpdate(player, to: device)
     }
     
     private func broadcastPlayerUpdate(_ player: PlayerLocal) {
@@ -796,6 +873,68 @@ public class MPRISService: Service, DownloadTaskDelegate {
     
     private func requestAlbumArt(player: String, albumArtUrl: String, from device: Device) {
         device.send(DataPacket.mprisRequestAlbumArtPacket(player: player, albumArtUrl: albumArtUrl))
+    }
+    
+    /// Send a comprehensive player update that matches GSConnect format
+    private func sendComprehensivePlayerUpdate(_ player: PlayerLocal, to device: Device) {
+        // Create a packet that matches the GSConnect format exactly
+        var body: [String: AnyObject] = [
+            "player": player.identity as AnyObject,
+            "isPlaying": player.isPlaying as AnyObject,
+            "pos": player.position as AnyObject,
+            "canPause": player.canPause as AnyObject,
+            "canPlay": player.canPlay as AnyObject,
+            "canGoNext": player.canGoNext as AnyObject,
+            "canGoPrevious": player.canGoPrevious as AnyObject,
+            "canSeek": player.canSeek as AnyObject,
+            "volume": player.volume as AnyObject,
+            "loopStatus": player.loopStatus as AnyObject,
+            "shuffle": player.shuffle as AnyObject
+        ]
+        
+        // Add metadata if available
+        if !player.artist.isEmpty {
+            body["artist"] = player.artist as AnyObject
+        }
+        
+        if !player.title.isEmpty {
+            body["title"] = player.title as AnyObject
+        }
+        
+        if !player.album.isEmpty {
+            body["album"] = player.album as AnyObject
+        }
+        
+        if player.length > 0 {
+            body["length"] = player.length as AnyObject
+        }
+        
+        // Create nowPlaying string like GSConnect does
+        var nowPlaying = ""
+        if !player.artist.isEmpty && !player.title.isEmpty {
+            nowPlaying = "\(player.artist) - \(player.title)"
+        } else if !player.artist.isEmpty {
+            nowPlaying = player.artist
+        } else if !player.title.isEmpty {
+            nowPlaying = player.title
+        } else {
+            nowPlaying = "Unknown"
+        }
+        body["nowPlaying"] = nowPlaying as AnyObject
+        
+        // Add album art URL if available
+        if !player.albumArtUrl.isEmpty {
+            body["albumArtUrl"] = player.albumArtUrl as AnyObject
+        } else {
+            body["albumArtUrl"] = "" as AnyObject
+        }
+        
+        let packet = DataPacket(type: DataPacket.mprisPacketType, body: body)
+        
+        Log.debug?.message("MPRIS::Sending comprehensive update for \(player.identity) to \(device.name)")
+        Log.debug?.message("MPRIS::Update data: isPlaying=\(player.isPlaying), nowPlaying='\(nowPlaying)', pos=\(player.position), volume=\(player.volume)")
+        
+        device.send(packet)
     }
     
     // MARK: Private methods - Album Art Download
@@ -1722,7 +1861,556 @@ class MediaRemotePlayer: PlayerLocal {
     }
 }
 
-/// Local player for testing MPRIS functionality
+// MARK: - MediaRemoteAdapter Player (Real Implementation using perl script)
+
+class MediaRemoteAdapterPlayer: PlayerLocal {
+    
+    // MediaRemoteAdapter perl script integration
+    private var streamProcess: Process?
+    private var streamPipe: Pipe?
+    private var streamTask: Task<Void, Never>?
+    private var lastPlayerInfo: [String: Any] = [:]
+    weak var parentService: MPRISService?
+    
+    override init(identity: String = "macOS.MediaRemote") {
+        super.init(identity: identity)
+        
+        Log.info?.message("MediaRemoteAdapterPlayer: Initializing with MediaRemoteAdapter integration")
+        
+        // Start monitoring media information
+        startMediaMonitoring()
+        
+        // Initial fetch of media information
+        Task {
+            await fetchCurrentMediaInfo()
+        }
+    }
+    
+    deinit {
+        stopMediaMonitoring()
+    }
+    
+    // MARK: - MediaRemoteAdapter Integration
+    
+    private func startMediaMonitoring() {
+        Log.debug?.message("MediaRemoteAdapterPlayer: Starting media monitoring stream")
+        
+        // Get MediaRemoteAdapter files from bundle resources
+        guard let scriptPath = Bundle.main.path(forResource: "mediaremote-adapter", ofType: "pl") else {
+            Log.error?.message("MediaRemoteAdapterPlayer: Perl script not found in bundle resources")
+            return
+        }
+        
+        // Framework is embedded, not in resources - check embedded frameworks location
+        guard let frameworkPath = Bundle.main.privateFrameworksPath?.appending("/MediaRemoteAdapter.framework") ??
+                Bundle.main.path(forResource: "MediaRemoteAdapter", ofType: "framework") else {
+            Log.error?.message("MediaRemoteAdapterPlayer: Framework not found in embedded frameworks")
+            return
+        }
+        
+        Log.debug?.message("MediaRemoteAdapterPlayer: Using script: \(scriptPath)")
+        Log.debug?.message("MediaRemoteAdapterPlayer: Using framework: \(frameworkPath)")
+        
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        process.arguments = [scriptPath, frameworkPath, "stream", "--debounce=500"]
+        
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe // Capture errors too
+        
+        streamProcess = process
+        streamPipe = pipe
+        
+        do {
+            try process.run()
+            Log.info?.message("MediaRemoteAdapterPlayer: ✅ Started MediaRemoteAdapter stream process")
+            
+            // Start reading from the stream
+            streamTask = Task { [weak self] in
+                await self?.processMediaStream()
+            }
+        } catch {
+            Log.error?.message("MediaRemoteAdapterPlayer: ❌ Failed to start MediaRemoteAdapter stream: \(error)")
+            streamProcess = nil
+            streamPipe = nil
+        }
+    }
+    
+    private func stopMediaMonitoring() {
+        Log.debug?.message("MediaRemoteAdapterPlayer: Stopping media monitoring")
+        
+        streamTask?.cancel()
+        streamTask = nil
+        
+        if let process = streamProcess, process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+        }
+        
+        streamProcess = nil
+        streamPipe = nil
+    }
+    
+    private func processMediaStream() async {
+        guard let pipe = streamPipe else { return }
+        
+        let fileHandle = pipe.fileHandleForReading
+        var buffer = ""
+        
+        Log.debug?.message("MediaRemoteAdapterPlayer: Starting to process media stream")
+        
+        while !Task.isCancelled {
+            do {
+                let data = fileHandle.availableData
+                
+                if data.isEmpty {
+                    // Process might have ended
+                    try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                    continue
+                }
+                
+                guard let chunk = String(data: data, encoding: .utf8) else {
+                    continue
+                }
+                
+                buffer.append(chunk)
+                
+                // Process complete JSON lines
+                while let range = buffer.range(of: "\n") {
+                    let line = String(buffer[..<range.lowerBound])
+                    buffer = String(buffer[range.upperBound...])
+                    
+                    if !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        await processJSONLine(line)
+                    }
+                }
+                
+            } catch {
+                Log.error?.message("MediaRemoteAdapterPlayer: Error reading from stream: \(error)")
+                do {
+                    try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                } catch {
+                    // If sleep fails, just continue without delay
+                    Log.debug?.message("MediaRemoteAdapterPlayer: Sleep interrupted: \(error)")
+                }
+            }
+        }
+        
+        Log.debug?.message("MediaRemoteAdapterPlayer: Stopped processing media stream")
+    }
+    
+    private func processJSONLine(_ line: String) async {
+        // Create a cleaned version of the JSON for logging (remove large artworkData)
+        let cleanedLine = cleanJSONForLogging(line)
+        Log.info?.message("MediaRemoteAdapterPlayer: 📥 Received JSON: \(cleanedLine)")
+        
+        guard let data = line.data(using: .utf8) else { return }
+        
+        do {
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return
+            }
+            
+            // Update player information based on JSON data
+            await updateFromMediaRemoteData(json)
+            
+        } catch {
+            Log.debug?.message("MediaRemoteAdapterPlayer: Failed to parse JSON line (normal for non-JSON output): \(error)")
+        }
+    }
+    
+    @MainActor
+    private func updateFromMediaRemoteData(_ data: [String: Any]) {
+        Log.info?.message("MediaRemoteAdapterPlayer: 🔍 Processing JSON keys: \(Array(data.keys).sorted())")
+        
+        // Extract the payload data - MediaRemoteAdapter wraps actual data in a payload object
+        guard let payload = data["payload"] as? [String: Any] else {
+            Log.debug?.message("MediaRemoteAdapterPlayer: No payload found in JSON data")
+            return
+        }
+        
+        Log.info?.message("MediaRemoteAdapterPlayer: 🔍 Processing payload keys: \(Array(payload.keys).sorted())")
+        
+        var hasChanges = false
+        var changesSummary: [String] = []
+        
+        // Update basic track info
+        if let newArtist = payload["artist"] as? String {
+            Log.debug?.message("MediaRemoteAdapterPlayer: Found artist in JSON: '\(newArtist)'")
+            if newArtist != artist {
+                let oldArtist = artist
+                artist = newArtist
+                hasChanges = true
+                changesSummary.append("artist: '\(oldArtist)' → '\(artist)'")
+            }
+        } else {
+            Log.debug?.message("MediaRemoteAdapterPlayer: No artist found in JSON or wrong type: \(payload["artist"] ?? "nil")")
+        }
+        
+        if let newTitle = payload["title"] as? String {
+            Log.debug?.message("MediaRemoteAdapterPlayer: Found title in JSON: '\(newTitle)'")
+            if newTitle != title {
+                let oldTitle = title
+                title = newTitle
+                hasChanges = true
+                changesSummary.append("title: '\(oldTitle)' → '\(title)'")
+            }
+        } else {
+            Log.debug?.message("MediaRemoteAdapterPlayer: No title found in JSON or wrong type: \(payload["title"] ?? "nil")")
+        }
+        
+        if let newAlbum = payload["album"] as? String, newAlbum != album {
+            let oldAlbum = album
+            album = newAlbum
+            hasChanges = true
+            changesSummary.append("album: '\(oldAlbum)' → '\(album)'")
+        }
+        
+        // Update duration (convert from seconds to milliseconds for MPRIS)
+        if let duration = payload["duration"] as? Double {
+            let newLength = Int(duration * 1000) // Convert to milliseconds
+            if newLength != length {
+                let oldLength = length
+                length = newLength
+                hasChanges = true
+                changesSummary.append("duration: \(oldLength / 1000)s → \(length / 1000)s")
+            }
+        }
+        
+        // Update position (convert from seconds to milliseconds for MPRIS)
+        if let elapsed = payload["elapsedTime"] as? Double {
+            let newPosition = Int(elapsed * 1000) // Convert to milliseconds
+            if abs(newPosition - position) > 2000 { // Only log significant position changes (>2s)
+                let oldPosition = position
+                position = newPosition
+                hasChanges = true
+                changesSummary.append("position: \(oldPosition / 1000)s → \(position / 1000)s")
+            } else if newPosition != position {
+                // Update position without logging for minor changes
+                position = newPosition
+                hasChanges = true
+            }
+        }
+        
+        // Update playback state
+        if let playing = payload["playing"] as? Bool {
+            Log.debug?.message("MediaRemoteAdapterPlayer: Found playing state in JSON: \(playing)")
+            if playing != isPlaying {
+                isPlaying = playing
+                hasChanges = true
+                changesSummary.append("playing: \(!playing) → \(isPlaying)")
+            }
+        } else {
+            Log.debug?.message("MediaRemoteAdapterPlayer: No playing state found in JSON or wrong type: \(payload["playing"] ?? "nil")")
+        }
+        
+        // Update shuffle mode
+        if let shuffleMode = payload["shuffleMode"] as? Int {
+            let newShuffle = shuffleMode != 1 // Mode 1 = off, others = on
+            if newShuffle != shuffle {
+                shuffle = newShuffle
+                hasChanges = true
+                changesSummary.append("shuffle: \(!shuffle) → \(shuffle)")
+            }
+        }
+        
+        // Update repeat mode
+        if let repeatModeValue = payload["repeatMode"] as? Int {
+            let newLoopStatus: String
+            switch repeatModeValue {
+            case 1: newLoopStatus = "None"
+            case 2: newLoopStatus = "Track"
+            case 3: newLoopStatus = "Playlist"
+            default: newLoopStatus = "None"
+            }
+            if newLoopStatus != loopStatus {
+                let oldLoopStatus = loopStatus
+                loopStatus = newLoopStatus
+                hasChanges = true
+                changesSummary.append("repeat: '\(oldLoopStatus)' → '\(loopStatus)'")
+            }
+        }
+        
+        // Update app information and player identity dynamically
+        if let bundleId = payload["bundleIdentifier"] as? String ?? payload["parentApplicationBundleIdentifier"] as? String {
+            let newAppName = getAppNameFromBundleId(bundleId)
+            
+            // Skip if the bundle identifier is our own app (Soduto itself)
+            if !bundleId.contains("com.sidevesh.Soduto") && !newAppName.isEmpty && identity != newAppName {
+                let oldIdentity = identity
+                
+                // Update our identity in the parent service
+                updatePlayerIdentity(from: oldIdentity, to: newAppName)
+                
+                identity = newAppName
+                hasChanges = true
+                changesSummary.append("app: '\(oldIdentity)' → '\(identity)' (\(bundleId))")
+            }
+        }
+        
+        // Update artwork if available
+        if let artworkDataString = payload["artworkData"] as? String, !artworkDataString.isEmpty {
+            if let artworkData = Data(base64Encoded: artworkDataString.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                if albumArtData != artworkData {
+                    albumArtData = artworkData
+                    // Create a proper data URL with MIME type if available
+                    let mimeType = payload["artworkMimeType"] as? String ?? "image/jpeg"
+                    albumArtUrl = "data:\(mimeType);base64,\(artworkDataString)"
+                    hasChanges = true
+                    changesSummary.append("artwork updated (\(artworkData.count) bytes)")
+                }
+            }
+        } else if !albumArtUrl.isEmpty {
+            albumArtData = nil
+            albumArtUrl = ""
+            hasChanges = true
+            changesSummary.append("artwork cleared")
+        }
+        
+        // Set player capabilities based on available info
+        canPlay = true
+        canPause = true
+        canGoNext = true
+        canGoPrevious = true
+        canSeek = length > 0
+        
+        if hasChanges {
+            lastUpdateTime = Date()
+            lastPlayerInfo = payload // Store the payload data, not the wrapper
+            
+            if !changesSummary.isEmpty {
+                Log.info?.message("MediaRemoteAdapterPlayer: ✅ Updated: \(changesSummary.joined(separator: ", "))")
+            }
+            
+            // Trigger state change callback
+            onStateChanged?()
+        }
+    }
+    
+    private func getAppNameFromBundleId(_ bundleId: String) -> String {
+        // Map common bundle IDs to user-friendly names
+        let knownApps: [String: String] = [
+            "com.spotify.client": "Spotify",
+            "com.apple.Music": "Music",
+            "com.apple.Safari": "Safari",
+            "com.google.Chrome": "Chrome",
+            "org.mozilla.firefox": "Firefox",
+            "com.microsoft.edgemac": "Edge",
+            "com.apple.QuickTimePlayerX": "QuickTime Player",
+            "com.apple.TV": "TV",
+            "com.apple.podcasts": "Podcasts",
+            "com.netflix.Netflix": "Netflix",
+            "com.youtube.youtube": "YouTube",
+            "com.apple.WebKit.WebContent": "Safari",
+            "com.brave.Browser": "Brave",
+            "com.operasoftware.Opera": "Opera",
+            "com.vivaldi.Vivaldi": "Vivaldi",
+            "com.soundcloud.desktop": "SoundCloud",
+            "com.tidal.desktop": "TIDAL",
+            "com.amazon.music": "Amazon Music",
+            "com.pandora.desktop": "Pandora",
+            "fm.last.desktop": "Last.fm"
+        ]
+        
+        return knownApps[bundleId] ?? bundleId.split(separator: ".").last?.capitalized ?? "Unknown App"
+    }
+    
+    private func cleanJSONForLogging(_ jsonString: String) -> String {
+        // Replace large artworkData with a placeholder to make logs readable
+        if jsonString.contains("\"artworkData\":") {
+            // Use regex to find and replace the artworkData value
+            let artworkPattern = "\"artworkData\":\"[^\"]*\""
+            let cleanedString = jsonString.replacingOccurrences(
+                of: artworkPattern,
+                with: "\"artworkData\":\"<ARTWORK_DATA_REMOVED>\"",
+                options: .regularExpression
+            )
+            return cleanedString
+        }
+        return jsonString
+    }
+    
+    private func updatePlayerIdentity(from oldIdentity: String, to newIdentity: String) {
+        // Notify the parent service to update the player mapping
+        parentService?.updateLocalPlayerIdentity(from: oldIdentity, to: newIdentity, player: self)
+    }
+    
+    private func fetchCurrentMediaInfo() async {
+        // Get MediaRemoteAdapter files from bundle resources
+        guard let scriptPath = Bundle.main.path(forResource: "mediaremote-adapter", ofType: "pl") else {
+            Log.error?.message("MediaRemoteAdapterPlayer: Perl script not found in bundle resources")
+            return
+        }
+        
+        // Framework is embedded, not in resources - check embedded frameworks location
+        guard let frameworkPath = Bundle.main.privateFrameworksPath?.appending("/MediaRemoteAdapter.framework") ??
+                Bundle.main.path(forResource: "MediaRemoteAdapter", ofType: "framework") else {
+            Log.error?.message("MediaRemoteAdapterPlayer: Framework not found in embedded frameworks")
+            return
+        }
+        
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        process.arguments = [scriptPath, frameworkPath, "get"]
+        
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        
+        do {
+            try process.run()
+            process.waitUntilExit()
+            
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let output = String(data: data, encoding: .utf8), !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let jsonData = output.data(using: .utf8),
+                   let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                    await updateFromMediaRemoteData(json)
+                    Log.debug?.message("MediaRemoteAdapterPlayer: ✅ Fetched initial media info")
+                }
+            }
+        } catch {
+            Log.error?.message("MediaRemoteAdapterPlayer: ❌ Failed to fetch current media info: \(error)")
+        }
+    }
+    
+    // MARK: - Player Controls (using MediaRemoteAdapter commands)
+    
+    override func play() {
+        Log.debug?.message("MediaRemoteAdapterPlayer: Play command")
+        sendMediaRemoteCommand("send", parameters: ["0"]) // kMRPlay = 0
+    }
+    
+    override func pause() {
+        Log.debug?.message("MediaRemoteAdapterPlayer: Pause command")
+        sendMediaRemoteCommand("send", parameters: ["1"]) // kMRPause = 1
+    }
+    
+    override func playPause() {
+        Log.debug?.message("MediaRemoteAdapterPlayer: PlayPause command")
+        sendMediaRemoteCommand("send", parameters: ["2"]) // kMRTogglePlayPause = 2
+    }
+    
+    override func next() {
+        Log.debug?.message("MediaRemoteAdapterPlayer: Next command")
+        sendMediaRemoteCommand("send", parameters: ["4"]) // kMRNextTrack = 4
+    }
+    
+    override func previous() {
+        Log.debug?.message("MediaRemoteAdapterPlayer: Previous command")
+        sendMediaRemoteCommand("send", parameters: ["5"]) // kMRPreviousTrack = 5
+    }
+    
+    override func stop() {
+        Log.debug?.message("MediaRemoteAdapterPlayer: Stop command")
+        sendMediaRemoteCommand("send", parameters: ["3"]) // kMRStop = 3
+    }
+    
+    override func seek(_ offsetMs: Int) {
+        Log.debug?.message("MediaRemoteAdapterPlayer: Seek by \(offsetMs)ms")
+        // Convert milliseconds to microseconds for MediaRemoteAdapter
+        let offsetMicros = offsetMs * 1000
+        let newPositionMicros = max(0, (position * 1000) + offsetMicros)
+        sendMediaRemoteCommand("seek", parameters: ["\(newPositionMicros)"])
+    }
+    
+    override func setPosition(_ positionMs: Int) {
+        Log.debug?.message("MediaRemoteAdapterPlayer: Set position to \(positionMs)ms")
+        // Convert milliseconds to microseconds for MediaRemoteAdapter
+        let positionMicros = positionMs * 1000
+        sendMediaRemoteCommand("seek", parameters: ["\(positionMicros)"])
+    }
+    
+    override func setVolume(_ newVolume: Int) {
+        Log.debug?.message("MediaRemoteAdapterPlayer: Set volume to \(newVolume)")
+        // MediaRemoteAdapter doesn't directly support volume control
+        // Update local state for now
+        volume = max(0, min(100, newVolume))
+        lastUpdateTime = Date()
+        onStateChanged?()
+    }
+    
+    override func setShuffle(_ shuffleEnabled: Bool) {
+        Log.debug?.message("MediaRemoteAdapterPlayer: Set shuffle to \(shuffleEnabled)")
+        let shuffleMode = shuffleEnabled ? "1" : "3" // 1 = on, 3 = off
+        sendMediaRemoteCommand("shuffle", parameters: [shuffleMode])
+    }
+    
+    override func setLoopStatus(_ newLoopStatus: String) {
+        Log.debug?.message("MediaRemoteAdapterPlayer: Set repeat to \(newLoopStatus)")
+        let repeatMode: String
+        switch newLoopStatus.lowercased() {
+        case "track": repeatMode = "2"
+        case "playlist": repeatMode = "3"
+        default: repeatMode = "1" // None
+        }
+        sendMediaRemoteCommand("repeat", parameters: [repeatMode])
+    }
+    
+    private func sendMediaRemoteCommand(_ command: String, parameters: [String] = []) {
+        // Get MediaRemoteAdapter files from bundle resources
+        guard let scriptPath = Bundle.main.path(forResource: "mediaremote-adapter", ofType: "pl") else {
+            Log.error?.message("MediaRemoteAdapterPlayer: Perl script not found in bundle resources")
+            return
+        }
+        
+        // Framework is embedded, not in resources - check embedded frameworks location
+        guard let frameworkPath = Bundle.main.privateFrameworksPath?.appending("/MediaRemoteAdapter.framework") ??
+                Bundle.main.path(forResource: "MediaRemoteAdapter", ofType: "framework") else {
+            Log.error?.message("MediaRemoteAdapterPlayer: Framework not found in embedded frameworks")
+            return
+        }
+        
+        Task {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+            process.arguments = [scriptPath, frameworkPath, command] + parameters
+            
+            do {
+                try process.run()
+                process.waitUntilExit()
+                
+                let success = process.terminationStatus == 0
+                if success {
+                    Log.info?.message("MediaRemoteAdapterPlayer: ✅ Successfully sent \(command) command")
+                    
+                    // Trigger state change callback
+                    await MainActor.run {
+                        onStateChanged?()
+                    }
+                    
+                    // Fetch updated info after successful command
+                    try await Task.sleep(nanoseconds: 100_000_000) // 100 milliseconds
+                    await fetchCurrentMediaInfo()
+                } else {
+                    Log.warning?.message("MediaRemoteAdapterPlayer: ❌ Failed to send \(command) command (exit code: \(process.terminationStatus))")
+                }
+                
+            } catch {
+                Log.error?.message("MediaRemoteAdapterPlayer: ❌ Error sending \(command) command: \(error)")
+            }
+        }
+    }
+    
+    // Override state method to include MediaRemoteAdapter specific info
+    override func getCurrentState() -> [String: Any] {
+        var state = super.getCurrentState()
+        
+        // Add MediaRemoteAdapter specific information
+        state["mediaSource"] = "MediaRemoteAdapter"
+        state["lastPlayerInfo"] = lastPlayerInfo
+        
+        // Add artwork data if available
+        if let artworkData = albumArtData {
+            state["hasArtwork"] = true
+            state["artworkSize"] = artworkData.count
+        }
+        
+        return state
+    }
+}
+
+/// Local media player that can be controlled from remote devices
 /// This represents a media player running on the Mac that can be controlled from remote devices
 class PlayerLocal: NSObject {
     
@@ -1749,6 +2437,7 @@ class PlayerLocal: NSObject {
         didSet { onStateChanged?() }
     }
     var albumArtUrl: String = ""
+    var albumArtData: Data? = nil // Raw image data for artwork
     var length: Int = 0 // in seconds
     
     // Player capabilities

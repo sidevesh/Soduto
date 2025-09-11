@@ -138,6 +138,10 @@
 		F826E6C72DB302F000E736CE /* RunCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F826E6C62DB302F000E736CE /* RunCommandService.swift */; };
 		F826E6C92DB419AF00E736CE /* RunCommandsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F826E6C82DB419AF00E736CE /* RunCommandsWindowController.swift */; };
 		F826E6CD2DB4F12500E736CE /* ModernUIStyleKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = F826E6CC2DB4F12500E736CE /* ModernUIStyleKit.swift */; };
+		F895950C2E734277001EA01D /* MediaRemoteAdapter.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F895950B2E734277001EA01D /* MediaRemoteAdapter.framework */; };
+		F895950D2E734291001EA01D /* MediaRemoteAdapter.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F895950B2E734277001EA01D /* MediaRemoteAdapter.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		F89595102E7342D9001EA01D /* mediaremote-adapter.pl in Resources */ = {isa = PBXBuildFile; fileRef = F895950F2E7342D9001EA01D /* mediaremote-adapter.pl */; };
+		F89595122E7342E2001EA01D /* MediaRemoteAdapterTestClient in Resources */ = {isa = PBXBuildFile; fileRef = F89595112E7342E2001EA01D /* MediaRemoteAdapterTestClient */; };
 		F8B2BB242DAFC87B00FFA284 /* ConnectivityReportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8B2BB232DAFC87B00FFA284 /* ConnectivityReportService.swift */; };
 		F8B4FE5D2DDCE7D500D383C8 /* MPRISService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8B4FE5C2DDCE7D500D383C8 /* MPRISService.swift */; };
 /* End PBXBuildFile section */
@@ -228,6 +232,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
+				F895950D2E734291001EA01D /* MediaRemoteAdapter.framework in Embed Frameworks */,
 				761FBEF7293212E10034FD44 /* CleanroomLogger.xcframework in Embed Frameworks */,
 				761FBEF6293212600034FD44 /* Reachability.xcframework in Embed Frameworks */,
 				761FBEF5293212580034FD44 /* CocoaAsyncSocket.xcframework in Embed Frameworks */,
@@ -382,6 +387,9 @@
 		F826E6C62DB302F000E736CE /* RunCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunCommandService.swift; sourceTree = "<group>"; };
 		F826E6C82DB419AF00E736CE /* RunCommandsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunCommandsWindowController.swift; sourceTree = "<group>"; };
 		F826E6CC2DB4F12500E736CE /* ModernUIStyleKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModernUIStyleKit.swift; sourceTree = "<group>"; };
+		F895950B2E734277001EA01D /* MediaRemoteAdapter.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MediaRemoteAdapter.framework; path = MediaRemoteAdapter/MediaRemoteAdapter.framework; sourceTree = "<group>"; };
+		F895950F2E7342D9001EA01D /* mediaremote-adapter.pl */ = {isa = PBXFileReference; lastKnownFileType = text.script.perl; name = "mediaremote-adapter.pl"; path = "MediaRemoteAdapter/mediaremote-adapter.pl"; sourceTree = SOURCE_ROOT; };
+		F89595112E7342E2001EA01D /* MediaRemoteAdapterTestClient */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = MediaRemoteAdapterTestClient; path = MediaRemoteAdapter/MediaRemoteAdapterTestClient; sourceTree = SOURCE_ROOT; };
 		F8B2BB232DAFC87B00FFA284 /* ConnectivityReportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityReportService.swift; sourceTree = "<group>"; };
 		F8B4FE5C2DDCE7D500D383C8 /* MPRISService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPRISService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -399,6 +407,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				76B580582930EE1B003453FD /* libcrypto.a in Frameworks */,
+				F895950C2E734277001EA01D /* MediaRemoteAdapter.framework in Frameworks */,
 				76B580592930EE1B003453FD /* libssl.a in Frameworks */,
 				31B189B729ED73A1001C8735 /* Sparkle.framework in Frameworks */,
 				76B5805A2930EE1B003453FD /* libssh2.a in Frameworks */,
@@ -560,6 +569,7 @@
 		843301621D2D8CB8008934BB /* Soduto */ = {
 			isa = PBXGroup;
 			children = (
+				F895950E2E7342C8001EA01D /* MediaRemoteAdapter */,
 				841E814C1D809C360096A846 /* Soduto.entitlements */,
 				8454D12C1D34228D00788632 /* Soduto-Bridging-Header.h */,
 				0236D2B81F9CFB2500E0F6A6 /* Acknowledgements.html */,
@@ -759,6 +769,7 @@
 				76B580572930EE1B003453FD /* libssh2.a */,
 				76B580562930EE1B003453FD /* libssl.a */,
 				843E17881E26B56A001D0444 /* ServiceManagement.framework */,
+				F895950B2E734277001EA01D /* MediaRemoteAdapter.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -781,6 +792,15 @@
 				847E9D2A1DF5E2640042D3CE /* TelephonyService.swift */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		F895950E2E7342C8001EA01D /* MediaRemoteAdapter */ = {
+			isa = PBXGroup;
+			children = (
+				F89595112E7342E2001EA01D /* MediaRemoteAdapterTestClient */,
+				F895950F2E7342D9001EA01D /* mediaremote-adapter.pl */,
+			);
+			path = MediaRemoteAdapter;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -968,6 +988,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F89595102E7342D9001EA01D /* mediaremote-adapter.pl in Resources */,
 				0236D2B91F9CFBAA00E0F6A6 /* Acknowledgements.html in Resources */,
 				319CBA2A2939F07D00DAE301 /* AirDrop.png in Resources */,
 				0236D2BA1F9CFBAA00E0F6A6 /* License.html in Resources */,
@@ -979,6 +1000,7 @@
 				844AF28F1ED6185100422B7F /* DevicesList.storyboard in Resources */,
 				8461F35C1EC0FBC500E99C17 /* LoadingView.xib in Resources */,
 				843301661D2D8CB8008934BB /* Assets.xcassets in Resources */,
+				F89595122E7342E2001EA01D /* MediaRemoteAdapterTestClient in Resources */,
 				023382B31F8D58AC00A832DD /* AboutWindow.storyboard in Resources */,
 				319CBA282939662400DAE301 /* Phone.png in Resources */,
 				843301691D2D8CB8008934BB /* MainMenu.xib in Resources */,
@@ -1449,6 +1471,7 @@
 					"$(inherited)",
 					"$(LOCAL_LIBRARY_DIR)/Frameworks",
 					"$(PROJECT_DIR)/Carthage/Build/Mac",
+					"$(PROJECT_DIR)/MediaRemoteAdapter",
 				);
 				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = Soduto/Info.plist;
@@ -1490,6 +1513,7 @@
 					"$(inherited)",
 					"$(LOCAL_LIBRARY_DIR)/Frameworks",
 					"$(PROJECT_DIR)/Carthage/Build/Mac",
+					"$(PROJECT_DIR)/MediaRemoteAdapter",
 				);
 				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = Soduto/Info.plist;
