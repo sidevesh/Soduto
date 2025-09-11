@@ -9,8 +9,8 @@
 import Foundation
 
 struct SharedUserDefaults {
-    static let suiteName = "D492BH5DH9.com.soduto.Soduto"
-    static let preferencesSuite = "com.soduto.Soduto.Preferences.Keys"
+    static let suiteName = "D492BH5DH9.com.sidevesh.Soduto"
+    static let preferencesSuite = "com.sidevesh.Soduto.Preferences.Keys"
     
     struct Keys {
         static let devicesToShow = ""

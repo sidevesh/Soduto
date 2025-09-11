@@ -101,7 +101,7 @@ Do note that currently there's no Homebrew formulae for my forked version and th
 
 * To switch logging level in `Terminal.app` run command (with `<level>` being an integer between 1 and 5, 1 being the most verbose and 5 - the least):
 
-    `defaults write com.soduto.Soduto com.soduto.logLevel -int <level>`
+    `defaults write com.sidevesh.Soduto com.soduto.logLevel -int <level>`
     
     It is highly recommended to enable verbose logging levels only during debugging as sensitive data may be logged in plain text (like passwords copied into a clipboard).
 

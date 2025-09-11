@@ -19,9 +19,9 @@ class BrowserWindowController: NSWindowController {
     // MARK: Types
     
     private struct SettingKeys {
-        static let showHiddenFiles = "com.soduto.SodutoBrowser.showHiddenFiles"
-        static let foldersAlwaysFirst = "com.soduto.SodutoBrowser.foldersAlwaysFirst"
-        static let iconsSize = "com.soduto.SodutoBrowser.iconsSize"
+        static let showHiddenFiles = "com.sidevesh.SodutoBrowser.showHiddenFiles"
+        static let foldersAlwaysFirst = "com.sidevesh.SodutoBrowser.foldersAlwaysFirst"
+        static let iconsSize = "com.sidevesh.SodutoBrowser.iconsSize"
     }
     
     
@@ -121,7 +121,7 @@ class BrowserWindowController: NSWindowController {
         
         self.window?.delegate = self
         let autosaveNameID = self.fileSystem.name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
-        self.window?.setFrameAutosaveName(NSWindow.FrameAutosaveName(rawValue: "com.soduto.SodutoBrowser.window-\(autosaveNameID)"))
+        self.window?.setFrameAutosaveName(NSWindow.FrameAutosaveName(rawValue: "com.sidevesh.SodutoBrowser.window-\(autosaveNameID)"))
         self.window?.makeKey()
         
         let iconItemNib = NSNib(nibNamed: NSNib.Name(rawValue: "IconItem"), bundle: nil)

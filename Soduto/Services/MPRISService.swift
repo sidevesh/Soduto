@@ -78,24 +78,30 @@ public class MPRISService: Service, DownloadTaskDelegate {
     
     public static let serviceId: Service.Id = "com.soduto.services.mpris"
     
-    public let incomingCapabilities = Set<Service.Capability>([ DataPacket.mprisPacketType ])
-    public let outgoingCapabilities = Set<Service.Capability>([ DataPacket.mprisRequestPacketType ])
+    public let incomingCapabilities = Set<Service.Capability>([ DataPacket.mprisPacketType, DataPacket.mprisRequestPacketType ])
+    public let outgoingCapabilities = Set<Service.Capability>([ DataPacket.mprisRequestPacketType, DataPacket.mprisPacketType ])
     
     private var albumArtDownloadInfos: [DownloadInfo] = []
     private var downloadedAlbumArtFileURLByPlayerIdentity: [String: URL] = [:]
     private var cachedDownloadedAlbumArtFileURLByHash: [String: URL] = [:]
     
-    /// Available players grouped by device
+    /// Available remote players grouped by device
     @Published private var players: [String: [PlayerRemote]] = [:]
     /// Keeps track of the last player that was playing
     private var lastActivePlayer: PlayerRemote? = nil
     private var nowPlayingInfoCenter = MPNowPlayingInfoCenter.default()
     private var commandCenter = MPRemoteCommandCenter.shared()
     
+    /// Local media players that can be controlled by remote devices
+    private var localPlayers: [String: PlayerLocal] = [:]
+    /// Track connected devices for broadcasting updates
+    private var connectedDevices: [String: Device] = [:]
+    
     // MARK: Initialization
     
     public init() {
         setupCommandCenter()
+        setupLocalPlayers()
         
         // Clean up old cache files on startup
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -108,37 +114,43 @@ public class MPRISService: Service, DownloadTaskDelegate {
     
     public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
         
-        guard dataPacket.isMprisPacket else { return false }
+        // Handle both MPRIS update packets and request packets
+        guard dataPacket.isMprisPacket || dataPacket.isMprisRequestPacket else { return false }
         
         Log.debug?.message("MPRIS::handleDataPacket(<\(dataPacket)> fromDevice:<\(device)> onConnection:<\(connection)>)")
         
-        do {
-            if let playerList = try dataPacket.getPlayerList() {
-                handlePlayerList(playerList, from: device)
-            } else if let player = try dataPacket.getPlayer() {
-                // Check if this is an album art transfer packet
-                if let isTransferringAlbumArt = try dataPacket.getTransferringAlbumArt(), isTransferringAlbumArt,
-                   let albumArtUrl = try dataPacket.getAlbumArtUrl(),
-                   dataPacket.hasPayload(),
-                   let downloadTask = dataPacket.downloadTask {
-                    handleAlbumArtTransfer(player: player, albumArtUrl: albumArtUrl, downloadTask: downloadTask, from: device)
-                } else {
-                    // Regular player update
-                    handlePlayerUpdate(player: player, packet: dataPacket, from: device)
-                }
-            }
-        } catch {
-            Log.error?.message("MPRIS::Error handling MPRIS packet: \(error)")
+        if dataPacket.isMprisPacket {
+            // Handle incoming player updates from remote devices
+            return handleMprisUpdate(dataPacket, fromDevice: device)
+        } else if dataPacket.isMprisRequestPacket {
+            // Handle incoming requests for local player control/info
+            return handleMprisRequest(dataPacket, fromDevice: device)
         }
         
-        return true
+        return false
     }
     
     public func setup(for device: Device) {
+        Log.debug?.message("MPRIS::Setting up service for device: \(device.name)")
+        
+        // Track connected devices
+        connectedDevices[device.id] = device
+        
+        // Request remote player list
         requestPlayerList(from: device)
+        
+        // Send our local player list after a small delay to ensure the device is ready
+        Log.debug?.message("MPRIS::Scheduling player list send to \(device.name), we have \(localPlayers.count) local players")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            Log.debug?.message("MPRIS::Sending delayed player list to \(device.name)")
+            self?.sendPlayerList(to: device)
+        }
     }
     
     public func cleanup(for device: Device) {
+        // Remove from connected devices
+        connectedDevices.removeValue(forKey: device.id)
+        
         // Remove players for this device
         if let devicePlayers = players.removeValue(forKey: device.id) {
             for player in devicePlayers {
@@ -164,8 +176,15 @@ public class MPRISService: Service, DownloadTaskDelegate {
     }
     
     public func actions(for device: Device) -> [ServiceAction] {
-        guard device.incomingCapabilities.contains(DataPacket.mprisPacketType) else { return [] }
-        guard device.pairingStatus == .Paired else { return [] }
+        guard device.incomingCapabilities.contains(DataPacket.mprisRequestPacketType) || 
+              device.outgoingCapabilities.contains(DataPacket.mprisPacketType) else { 
+            Log.debug?.message("MPRIS::Device \(device.name) doesn't support MPRIS capabilities")
+            return [] 
+        }
+        guard device.pairingStatus == .Paired else { 
+            Log.debug?.message("MPRIS::Device \(device.name) is not paired")
+            return [] 
+        }
         
         return [
             ServiceAction(id: ActionId.refresh.rawValue, group: "setup", title: "Request Media Players", description: "Request available media players from the remote device", service: self, device: device)
@@ -179,6 +198,191 @@ public class MPRISService: Service, DownloadTaskDelegate {
         switch actionId {
         case .refresh:
             requestPlayerList(from: device)
+        }
+    }
+    
+    // MARK: - Packet Handling Methods
+    
+    private func handleMprisUpdate(_ dataPacket: DataPacket, fromDevice device: Device) -> Bool {
+        do {
+            if let playerList = try dataPacket.getPlayerList() {
+                handlePlayerList(playerList, from: device)
+            } else if let player = try dataPacket.getPlayer() {
+                // Check if this is an album art transfer packet
+                if let isTransferringAlbumArt = try dataPacket.getTransferringAlbumArt(), isTransferringAlbumArt,
+                   let albumArtUrl = try dataPacket.getAlbumArtUrl(),
+                   dataPacket.hasPayload(),
+                   let downloadTask = dataPacket.downloadTask {
+                    handleAlbumArtTransfer(player: player, albumArtUrl: albumArtUrl, downloadTask: downloadTask, from: device)
+                } else {
+                    // Regular player update
+                    handlePlayerUpdate(player: player, packet: dataPacket, from: device)
+                }
+            }
+        } catch {
+            Log.error?.message("MPRIS::Error handling MPRIS update packet: \(error)")
+        }
+        
+        return true
+    }
+    
+    private func handleMprisRequest(_ dataPacket: DataPacket, fromDevice device: Device) -> Bool {
+        Log.debug?.message("MPRIS::Handling MPRIS request from \(device.name)")
+        
+        do {
+            // Check if this is a request for player list
+            if try dataPacket.hasRequestPlayerList() {
+                Log.debug?.message("MPRIS::Received player list request from \(device.name)")
+                sendPlayerList(to: device)
+                return true
+            }
+            
+            // Check if this is a player-specific request
+            guard let player = try dataPacket.getPlayer() else {
+                Log.warning?.message("MPRIS::Request packet without player or playerList request")
+                return true
+            }
+            
+            guard let localPlayer = localPlayers[player] else {
+                Log.warning?.message("MPRIS::Request for unknown local player: \(player)")
+                sendPlayerList(to: device) // Send updated player list
+                return true
+            }
+            
+            // Handle album art request
+            if let albumArtUrl = try dataPacket.getAlbumArtUrl() {
+                // TODO: Implement album art transfer for local players
+                Log.debug?.message("MPRIS::Album art request for \(player): \(albumArtUrl)")
+                return true
+            }
+            
+            // Handle player commands
+            if let action = try dataPacket.getAction() {
+                handlePlayerCommand(action: action, player: localPlayer, fromDevice: device)
+            }
+            
+            // Handle property setters
+            if let volume = try dataPacket.getSetVolume() {
+                localPlayer.setVolume(volume)
+                sendPlayerUpdate(localPlayer, to: device)
+            }
+            
+            if let loopStatus = try dataPacket.getSetLoopStatus() {
+                localPlayer.setLoopStatus(loopStatus)
+                sendPlayerUpdate(localPlayer, to: device)
+            }
+            
+            if let shuffle = try dataPacket.getSetShuffle() {
+                localPlayer.setShuffle(shuffle)
+                sendPlayerUpdate(localPlayer, to: device)
+            }
+            
+            if let seekOffset = try dataPacket.getSeek() {
+                localPlayer.seek(seekOffset)
+                sendPlayerUpdate(localPlayer, to: device)
+            }
+            
+            if let position = try dataPacket.getSetPosition() {
+                localPlayer.setPosition(position)
+                sendPlayerUpdate(localPlayer, to: device)
+            }
+            
+            // Handle information requests
+            let hasRequestNowPlaying = (try? dataPacket.hasRequestNowPlaying()) ?? false
+            let hasRequestVolume = (try? dataPacket.hasRequestVolume()) ?? false
+            if hasRequestNowPlaying || hasRequestVolume {
+                sendPlayerUpdate(localPlayer, to: device)
+            }
+            
+        } catch {
+            Log.error?.message("MPRIS::Error handling MPRIS request: \(error)")
+        }
+        
+        return true
+    }
+    
+    // MARK: - Local Player Management
+    
+    private func setupLocalPlayers() {
+        Log.debug?.message("MPRIS::Setting up local players")
+        
+        // Create a real media remote player
+        let mediaRemotePlayer = MediaRemotePlayer(identity: "macOS.NowPlaying")
+        
+        // Check if MediaRemote framework loaded successfully
+        if mediaRemotePlayer.isMediaRemoteAvailable {
+            // Set up state change callback
+            mediaRemotePlayer.onStateChanged = { [weak self] in
+                Log.debug?.message("MPRIS::MediaRemote player state changed, broadcasting update")
+                self?.broadcastPlayerUpdate(mediaRemotePlayer)
+            }
+            
+            localPlayers[mediaRemotePlayer.identity] = mediaRemotePlayer
+            Log.debug?.message("MPRIS::Created MediaRemote local player: \(mediaRemotePlayer.identity)")
+        } else {
+            Log.error?.message("MPRIS::MediaRemote framework not available - no local players will be available")
+        }
+    }
+    
+    private func handlePlayerCommand(action: String, player: PlayerLocal, fromDevice device: Device) {
+        Log.debug?.message("MPRIS::Handling action '\(action)' for player \(player.identity) from \(device.name)")
+        
+        switch action {
+        case "Play":
+            player.play()
+        case "Pause":
+            player.pause()
+        case "PlayPause":
+            player.playPause()
+        case "Next":
+            player.next()
+        case "Previous":
+            player.previous()
+        case "Stop":
+            player.stop()
+        default:
+            Log.warning?.message("MPRIS::Unknown action: \(action)")
+            return
+        }
+        
+        // Send updated player state
+        sendPlayerUpdate(player, to: device)
+    }
+    
+    private func sendPlayerList(to device: Device) {
+        let playerIdentities = Array(localPlayers.keys)
+        Log.debug?.message("MPRIS::Sending player list to \(device.name): \(playerIdentities)")
+        
+        // Create the packet body exactly like GSConnect does
+        let packet = DataPacket(type: DataPacket.mprisPacketType, body: [
+            "playerList": playerIdentities as AnyObject,
+            "supportAlbumArtPayload": true as AnyObject
+        ])
+        
+        Log.debug?.message("MPRIS::Player list packet body: \(packet.body)")
+        device.send(packet)
+        
+        // Also send initial state for each player (like GSConnect does)
+        for (_, player) in localPlayers {
+            Log.debug?.message("MPRIS::Sending initial state for player: \(player.identity)")
+            sendPlayerUpdate(player, to: device)
+        }
+    }
+    
+    private func sendPlayerUpdate(_ player: PlayerLocal, to device: Device) {
+        let state = player.getCurrentState()
+        Log.debug?.message("MPRIS::Sending player update for \(player.identity) to \(device.name)")
+        Log.debug?.message("MPRIS::Player state: \(state)")
+        
+        let packet = DataPacket.mprisUpdatePacket(state: state)
+        Log.debug?.message("MPRIS::Update packet body: \(packet.body)")
+        device.send(packet)
+    }
+    
+    private func broadcastPlayerUpdate(_ player: PlayerLocal) {
+        // Send updates to all connected devices
+        for (_, device) in connectedDevices {
+            sendPlayerUpdate(player, to: device)
         }
     }
     
@@ -926,6 +1130,677 @@ class PlayerRemote: NSObject {
     }
 }
 
+// MARK: - Media Remote Player (Real Implementation)
+
+class MediaRemotePlayer: PlayerLocal {
+    
+    // MediaRemote framework functions
+    private var mediaRemoteBundle: CFBundle?
+    private var MRMediaRemoteGetNowPlayingInfo: MRMediaRemoteGetNowPlayingInfoFunction?
+    private var MRNowPlayingClientGetBundleIdentifier: MRNowPlayingClientGetBundleIdentifierFunction?
+    private var MRMediaRemoteSetCanBeNowPlayingApplication: MRMediaRemoteSetCanBeNowPlayingApplicationFunction?
+    private var MRMediaRemoteRegisterForNowPlayingNotifications: MRMediaRemoteRegisterForNowPlayingNotificationsFunction?
+    private var MRMediaRemoteUnregisterForNowPlayingNotifications: MRMediaRemoteUnregisterForNowPlayingNotificationsFunction?
+    private var MRMediaRemoteSendCommand: MRMediaRemoteSendCommandFunction?
+    
+    // Function type definitions
+    typealias MRMediaRemoteGetNowPlayingInfoFunction = @convention(c) (DispatchQueue, @escaping ([String: Any]) -> Void) -> Void
+    typealias MRNowPlayingClientGetBundleIdentifierFunction = @convention(c) (AnyObject?) -> String
+    typealias MRMediaRemoteSetCanBeNowPlayingApplicationFunction = @convention(c) (Bool) -> Void
+    typealias MRMediaRemoteRegisterForNowPlayingNotificationsFunction = @convention(c) (DispatchQueue) -> Void
+    typealias MRMediaRemoteUnregisterForNowPlayingNotificationsFunction = @convention(c) (DispatchQueue) -> Void
+    typealias MRMediaRemoteSendCommandFunction = @convention(c) (UInt32, [String: Any]?) -> Bool
+    
+    // MediaRemote command constants
+    private enum MRCommand: UInt32 {
+        case play = 0
+        case pause = 1
+        case togglePlayPause = 2
+        case stop = 3
+        case nextTrack = 4
+        case previousTrack = 5
+        case seekForward = 7
+        case seekBackward = 8
+    }
+    
+    // Current app bundle identifier
+    private var currentAppBundleId: String = ""
+    
+    // Track if MediaRemote framework is available
+    var isMediaRemoteAvailable: Bool {
+        return mediaRemoteBundle != nil && MRMediaRemoteGetNowPlayingInfo != nil
+    }
+    
+    override init(identity: String = "macOS.NowPlaying") {
+        super.init(identity: identity)
+        
+        // Load MediaRemote framework
+        loadMediaRemoteFramework()
+        
+        // Register for now playing notifications
+        registerForNotifications()
+        
+        // Also try to listen to MPNowPlayingInfoCenter as a fallback
+        setupMPNowPlayingInfoCenterFallback()
+        
+        // Initial fetch of now playing info
+        fetchNowPlayingInfo()
+        
+        // Set up periodic refresh with shorter intervals to try to catch changes
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.fetchNowPlayingInfo()
+        }
+        
+        // Also try to get info from MPNowPlayingInfoCenter periodically
+        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.checkMPNowPlayingInfoCenter()
+        }
+    }
+    
+    private func setupMPNowPlayingInfoCenterFallback() {
+        // Try to get information from the system's MPNowPlayingInfoCenter
+        // This might have different permission requirements
+        Log.debug?.message("MediaRemotePlayer: Setting up MPNowPlayingInfoCenter fallback")
+    }
+    
+    private func checkMPNowPlayingInfoCenter() {
+        // Try to get now playing info from MPNowPlayingInfoCenter as a fallback
+        let infoCenter = MPNowPlayingInfoCenter.default()
+        if let nowPlayingInfo = infoCenter.nowPlayingInfo, !nowPlayingInfo.isEmpty {
+            Log.debug?.message("MediaRemotePlayer: Got info from MPNowPlayingInfoCenter: \(nowPlayingInfo.keys)")
+            updateFromMPNowPlayingInfo(nowPlayingInfo)
+        }
+    }
+    
+    private func updateFromMPNowPlayingInfo(_ nowPlayingInfo: [String: Any]) {
+        var hasChanges = false
+        
+        if let newTitle = nowPlayingInfo[MPMediaItemPropertyTitle] as? String, newTitle != title {
+            title = newTitle
+            hasChanges = true
+            Log.debug?.message("MediaRemotePlayer: Updated title from MPNowPlayingInfoCenter: \(title)")
+        }
+        
+        if let newArtist = nowPlayingInfo[MPMediaItemPropertyArtist] as? String, newArtist != artist {
+            artist = newArtist
+            hasChanges = true
+            Log.debug?.message("MediaRemotePlayer: Updated artist from MPNowPlayingInfoCenter: \(artist)")
+        }
+        
+        if let newAlbum = nowPlayingInfo[MPMediaItemPropertyAlbumTitle] as? String, newAlbum != album {
+            album = newAlbum
+            hasChanges = true
+            Log.debug?.message("MediaRemotePlayer: Updated album from MPNowPlayingInfoCenter: \(album)")
+        }
+        
+        if let duration = nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] as? TimeInterval {
+            let newLength = Int(duration)
+            if newLength != length {
+                length = newLength
+                hasChanges = true
+                Log.debug?.message("MediaRemotePlayer: Updated length from MPNowPlayingInfoCenter: \(length)s")
+            }
+        }
+        
+        if let elapsed = nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? TimeInterval {
+            let newPosition = Int(elapsed)
+            if newPosition != position {
+                position = newPosition
+                hasChanges = true
+                Log.debug?.message("MediaRemotePlayer: Updated position from MPNowPlayingInfoCenter: \(position)s")
+            }
+        }
+        
+        if let playbackRate = nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] as? Double {
+            let newIsPlaying = playbackRate > 0
+            if newIsPlaying != isPlaying {
+                isPlaying = newIsPlaying
+                hasChanges = true
+                Log.debug?.message("MediaRemotePlayer: Updated playing state from MPNowPlayingInfoCenter: \(isPlaying)")
+            }
+        }
+        
+        if hasChanges {
+            lastUpdateTime = Date()
+            onStateChanged?()
+        }
+    }
+    
+    deinit {
+        unregisterFromNotifications()
+    }
+    
+    private func loadMediaRemoteFramework() {
+        // Load MediaRemote framework
+        guard let bundle = CFBundleCreate(kCFAllocatorDefault, 
+                                        NSURL(fileURLWithPath: "/System/Library/PrivateFrameworks/MediaRemote.framework")) else {
+            Log.error?.message("MediaRemotePlayer: Failed to load MediaRemote framework")
+            return
+        }
+        
+        mediaRemoteBundle = bundle
+        
+        // Get function pointers
+        if let getNowPlayingPointer = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteGetNowPlayingInfo" as CFString) {
+            MRMediaRemoteGetNowPlayingInfo = unsafeBitCast(getNowPlayingPointer, to: MRMediaRemoteGetNowPlayingInfoFunction.self)
+        }
+        
+        if let getBundleIdPointer = CFBundleGetFunctionPointerForName(bundle, "MRNowPlayingClientGetBundleIdentifier" as CFString) {
+            MRNowPlayingClientGetBundleIdentifier = unsafeBitCast(getBundleIdPointer, to: MRNowPlayingClientGetBundleIdentifierFunction.self)
+        }
+        
+        if let setCanBeNowPlayingPointer = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteSetCanBeNowPlayingApplication" as CFString) {
+            MRMediaRemoteSetCanBeNowPlayingApplication = unsafeBitCast(setCanBeNowPlayingPointer, to: MRMediaRemoteSetCanBeNowPlayingApplicationFunction.self)
+        }
+        
+        if let registerNotificationsPointer = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteRegisterForNowPlayingNotifications" as CFString) {
+            MRMediaRemoteRegisterForNowPlayingNotifications = unsafeBitCast(registerNotificationsPointer, to: MRMediaRemoteRegisterForNowPlayingNotificationsFunction.self)
+        }
+        
+        if let unregisterNotificationsPointer = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteUnregisterForNowPlayingNotifications" as CFString) {
+            MRMediaRemoteUnregisterForNowPlayingNotifications = unsafeBitCast(unregisterNotificationsPointer, to: MRMediaRemoteUnregisterForNowPlayingNotificationsFunction.self)
+        }
+        
+        if let sendCommandPointer = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteSendCommand" as CFString) {
+            MRMediaRemoteSendCommand = unsafeBitCast(sendCommandPointer, to: MRMediaRemoteSendCommandFunction.self)
+        }
+        
+        Log.debug?.message("MediaRemotePlayer: Successfully loaded MediaRemote framework functions")
+        Log.info?.message("MediaRemotePlayer: Note - MediaRemote control may require additional entitlements or code signing for full functionality")
+    }
+    
+    private func registerForNotifications() {
+        guard let registerFunc = MRMediaRemoteRegisterForNowPlayingNotifications else { 
+            Log.warning?.message("MediaRemotePlayer: MRMediaRemoteRegisterForNowPlayingNotifications function not available")
+            return 
+        }
+        
+        // Register for notifications on main queue
+        registerFunc(DispatchQueue.main)
+        
+        // Listen for now playing info changed notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(nowPlayingInfoChanged),
+            name: NSNotification.Name("kMRMediaRemoteNowPlayingInfoDidChangeNotification"),
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(nowPlayingInfoChanged),
+            name: NSNotification.Name("kMRMediaRemoteNowPlayingApplicationDidChangeNotification"),
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(nowPlayingInfoChanged),
+            name: NSNotification.Name("kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification"),
+            object: nil
+        )
+        
+        Log.debug?.message("MediaRemotePlayer: Registered for MediaRemote notifications")
+    }
+    
+    private func unregisterFromNotifications() {
+        guard let unregisterFunc = MRMediaRemoteUnregisterForNowPlayingNotifications else { return }
+        
+        unregisterFunc(DispatchQueue.main)
+        NotificationCenter.default.removeObserver(self)
+        
+        Log.debug?.message("MediaRemotePlayer: Unregistered from MediaRemote notifications")
+    }
+    
+    @objc private func nowPlayingInfoChanged() {
+        Log.debug?.message("MediaRemotePlayer: Now playing info changed notification received")
+        fetchNowPlayingInfo()
+    }
+    
+    private func fetchNowPlayingInfo() {
+        guard let getNowPlayingFunc = MRMediaRemoteGetNowPlayingInfo else { 
+            Log.warning?.message("MediaRemotePlayer: MRMediaRemoteGetNowPlayingInfo function not available")
+            return 
+        }
+        
+        Log.debug?.message("MediaRemotePlayer: Fetching now playing info...")
+        
+        getNowPlayingFunc(DispatchQueue.main) { [weak self] information in
+            Log.debug?.message("MediaRemotePlayer: Received now playing info callback with \(information.count) keys")
+            if information.isEmpty {
+                Log.debug?.message("MediaRemotePlayer: No media information available - likely permission issue or no active player")
+                // Try to set a basic state indicating we're ready but have no media info
+                self?.updateBasicPlayerState()
+            } else {
+                Log.debug?.message("MediaRemotePlayer: Processing media information: \(Array(information.keys))")
+                self?.updateFromNowPlayingInfo(information)
+            }
+        }
+    }
+    
+    private func updateBasicPlayerState() {
+        // Set basic player state when we can't get media info but want to show the player is available
+        if artist.isEmpty && title.isEmpty {
+            // Only update if we don't already have any info
+            artist = ""
+            title = ""
+            album = ""
+            length = 0
+            position = 0
+            isPlaying = false
+            lastUpdateTime = Date()
+            Log.debug?.message("MediaRemotePlayer: Set basic player state - ready but no media info available")
+        }
+    }
+    
+    private func updateFromNowPlayingInfo(_ information: [String: Any]) {
+        Log.debug?.message("MediaRemotePlayer: Updating from now playing info with \(information.count) keys")
+        
+        // Log available keys for debugging
+        if information.isEmpty {
+            Log.debug?.message("MediaRemotePlayer: No now playing information available")
+            return
+        }
+        
+        var hasChanges = false
+        
+        // Update basic track info
+        if let newArtist = information["kMRMediaRemoteNowPlayingInfoArtist"] as? String, newArtist != artist {
+            artist = newArtist.isEmpty ? "" : newArtist
+            hasChanges = true
+            Log.debug?.message("MediaRemotePlayer: Updated artist: \(artist)")
+        }
+        
+        if let newTitle = information["kMRMediaRemoteNowPlayingInfoTitle"] as? String, newTitle != title {
+            title = newTitle.isEmpty ? "" : newTitle
+            hasChanges = true
+            Log.debug?.message("MediaRemotePlayer: Updated title: \(title)")
+        }
+        
+        if let newAlbum = information["kMRMediaRemoteNowPlayingInfoAlbum"] as? String, newAlbum != album {
+            album = newAlbum.isEmpty ? "" : newAlbum
+            hasChanges = true
+            Log.debug?.message("MediaRemotePlayer: Updated album: \(album)")
+        }
+        
+        // Update duration
+        if let duration = information["kMRMediaRemoteNowPlayingInfoDuration"] as? Double {
+            let newLength = Int(duration)
+            if newLength != length {
+                length = newLength
+                hasChanges = true
+                Log.debug?.message("MediaRemotePlayer: Updated length: \(length)s")
+            }
+        }
+        
+        // Update position
+        if let elapsed = information["kMRMediaRemoteNowPlayingInfoElapsedTime"] as? Double {
+            let newPosition = Int(elapsed)
+            if newPosition != position {
+                position = newPosition
+                hasChanges = true
+                Log.debug?.message("MediaRemotePlayer: Updated position: \(position)s")
+            }
+        }
+        
+        // Update playback state
+        if let playbackRate = information["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? Double {
+            let newIsPlaying = playbackRate > 0
+            if newIsPlaying != isPlaying {
+                isPlaying = newIsPlaying
+                hasChanges = true
+                Log.debug?.message("MediaRemotePlayer: Updated playing state: \(isPlaying)")
+            }
+        }
+        
+        // Get app bundle identifier
+        if let clientPropertiesData = information["kMRMediaRemoteNowPlayingInfoClientPropertiesData"] {
+            if let bundleId = getBundleIdentifierFromClientProperties(clientPropertiesData) {
+                currentAppBundleId = bundleId
+                Log.debug?.message("MediaRemotePlayer: Now playing from app: \(bundleId)")
+            }
+        }
+        
+        // Update artwork URL if available
+        if information["kMRMediaRemoteNowPlayingInfoArtworkData"] != nil {
+            // We have artwork data - could save it and provide a local URL
+            // For now, just indicate that artwork is available
+            if albumArtUrl.isEmpty {
+                albumArtUrl = "mediaremote://artwork/\(currentAppBundleId)"
+                hasChanges = true
+            }
+        } else if !albumArtUrl.isEmpty {
+            albumArtUrl = ""
+            hasChanges = true
+        }
+        
+        if hasChanges {
+            lastUpdateTime = Date()
+            Log.debug?.message("MediaRemotePlayer: Updated track info: \(artist) - \(title) (\(album)) playing: \(isPlaying)")
+        }
+    }
+    
+    private func getBundleIdentifierFromClientProperties(_ clientPropertiesData: Any) -> String? {
+        guard let getBundleIdFunc = MRNowPlayingClientGetBundleIdentifier else { return nil }
+        
+        // Use the complex method from the example to get bundle identifier
+        let _MRNowPlayingClientProtobuf: AnyClass? = NSClassFromString("_MRNowPlayingClientProtobuf")
+        guard let protobufClass = _MRNowPlayingClientProtobuf else { return nil }
+        
+        let handle: UnsafeMutableRawPointer! = dlopen("/usr/lib/libobjc.A.dylib", RTLD_NOW)
+        guard handle != nil else { return nil }
+        
+        defer { dlclose(handle) }
+        
+        let object = unsafeBitCast(dlsym(handle, "objc_msgSend"), 
+                                 to: (@convention(c)(AnyClass?, Selector?) -> AnyObject).self)(protobufClass, Selector("alloc"))
+        
+        unsafeBitCast(dlsym(handle, "objc_msgSend"), 
+                     to: (@convention(c)(AnyObject?, Selector?, Any?) -> Void).self)(object, Selector("initWithData:"), clientPropertiesData)
+        
+        return getBundleIdFunc(object)
+    }
+    
+    // MARK: - Player Controls (Override to use MediaRemote)
+    
+    override func play() {
+        Log.debug?.message("MediaRemotePlayer: Play command")
+        sendMediaRemoteCommand(.play)
+    }
+    
+    override func pause() {
+        Log.debug?.message("MediaRemotePlayer: Pause command")
+        sendMediaRemoteCommand(.pause)
+    }
+    
+    override func playPause() {
+        Log.debug?.message("MediaRemotePlayer: PlayPause command")
+        sendMediaRemoteCommand(.togglePlayPause)
+    }
+    
+    override func next() {
+        Log.debug?.message("MediaRemotePlayer: Next command")
+        sendMediaRemoteCommand(.nextTrack)
+    }
+    
+    override func previous() {
+        Log.debug?.message("MediaRemotePlayer: Previous command")
+        sendMediaRemoteCommand(.previousTrack)
+    }
+    
+    override func stop() {
+        Log.debug?.message("MediaRemotePlayer: Stop command")
+        sendMediaRemoteCommand(.stop)
+    }
+    
+    override func seek(_ offsetMs: Int) {
+        Log.debug?.message("MediaRemotePlayer: Seek by \(offsetMs)ms")
+        // MediaRemote doesn't have a direct seek offset, but we can try to set the position
+        let newPosition = max(0, position + (offsetMs / 1000))
+        setPosition(newPosition * 1000)
+    }
+    
+    override func setPosition(_ positionMs: Int) {
+        Log.debug?.message("MediaRemotePlayer: Set position to \(positionMs)ms")
+        // MediaRemote position setting requires a different approach
+        // For now, just update our local position and hope the app handles it
+        position = positionMs / 1000
+        lastUpdateTime = Date()
+        onStateChanged?()
+    }
+    
+    override func setVolume(_ newVolume: Int) {
+        Log.debug?.message("MediaRemotePlayer: Set volume to \(newVolume)")
+        // MediaRemote volume control would require additional functions
+        // For now, just update local state
+        volume = max(0, min(100, newVolume))
+        lastUpdateTime = Date()
+        onStateChanged?()
+    }
+    
+    private func sendMediaRemoteCommand(_ command: MRCommand) {
+        guard let sendCommandFunc = MRMediaRemoteSendCommand else {
+            Log.error?.message("MediaRemotePlayer: MRMediaRemoteSendCommand function not available")
+            return
+        }
+        
+        Log.debug?.message("MediaRemotePlayer: Attempting to send command \(command)")
+        let success = sendCommandFunc(command.rawValue, nil)
+        
+        if success {
+            Log.debug?.message("MediaRemotePlayer: Successfully sent command \(command)")
+            
+            // Force trigger state change callback to notify connected devices
+            onStateChanged?()
+            
+            // Try to fetch updated info after successful command with multiple attempts
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.fetchNowPlayingInfo()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.fetchNowPlayingInfo()
+            }
+        } else {
+            Log.warning?.message("MediaRemotePlayer: Failed to send command \(command) - likely due to insufficient permissions or no active media player")
+            Log.warning?.message("MediaRemotePlayer: This may indicate that Soduto needs additional entitlements or the app needs to be code-signed for MediaRemote access")
+        }
+    }
+    
+    // Override state method to include current app info and indicate command capability
+    override func getCurrentState() -> [String: Any] {
+        var state = super.getCurrentState()
+        
+        // Add app bundle identifier if available
+        if !currentAppBundleId.isEmpty {
+            state["nowPlayingApp"] = currentAppBundleId
+        }
+        
+        // Indicate that we support MediaRemote commands even if we don't have media info
+        state["supportsMediaRemoteCommands"] = true
+        
+        // If we don't have any media info, indicate that controls are still available
+        if artist.isEmpty && title.isEmpty && length == 0 {
+            state["playerStatus"] = "ready_no_media"
+            state["statusMessage"] = "Media controls available (no active media)"
+        }
+        
+        return state
+    }
+}
+
+/// Local player for testing MPRIS functionality
+/// This represents a media player running on the Mac that can be controlled from remote devices
+class PlayerLocal: NSObject {
+    
+    // Player identity and metadata
+    let identity: String
+    var isPlaying: Bool = false {
+        didSet {
+            if isPlaying != oldValue {
+                onStateChanged?()
+            }
+        }
+    }
+    var position: Int = 0 // in seconds
+    var lastUpdateTime: Date = Date()
+    
+    // Track metadata
+    var artist: String = "" {
+        didSet { onStateChanged?() }
+    }
+    var title: String = "" {
+        didSet { onStateChanged?() }
+    }
+    var album: String = "" {
+        didSet { onStateChanged?() }
+    }
+    var albumArtUrl: String = ""
+    var length: Int = 0 // in seconds
+    
+    // Player capabilities
+    var volume: Int = 50 { // 0-100
+        didSet { onStateChanged?() }
+    }
+    var canPause: Bool = true
+    var canPlay: Bool = true
+    var canGoNext: Bool = true
+    var canGoPrevious: Bool = true
+    var canSeek: Bool = true
+    var loopStatus: String = "None" { // "None", "Track", "Playlist"
+        didSet { onStateChanged?() }
+    }
+    var shuffle: Bool = false {
+        didSet { onStateChanged?() }
+    }
+    
+    // Player state tracking
+    private var positionTimer: Timer?
+    
+    // Callback for state changes
+    var onStateChanged: (() -> Void)?
+    
+    init(identity: String = "Player") {
+        self.identity = identity
+        super.init()
+        
+        // Start position tracking timer
+        startPositionTimer()
+    }
+    
+    deinit {
+        stopPositionTimer()
+    }
+    
+    // MARK: - Position Tracking
+    
+    private func startPositionTimer() {
+        positionTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            if self.isPlaying {
+                self.position += 1
+                if self.position >= self.length {
+                    // Track ended
+                    if self.loopStatus == "Track" {
+                        self.position = 0
+                    } else {
+                        self.position = self.length
+                        self.isPlaying = false
+                    }
+                }
+                self.lastUpdateTime = Date()
+            }
+        }
+    }
+    
+    private func stopPositionTimer() {
+        positionTimer?.invalidate()
+        positionTimer = nil
+    }
+    
+    // MARK: - Player Controls
+    
+    func play() {
+        Log.debug?.message("Player: Play command")
+        if !isPlaying {
+            isPlaying = true
+            lastUpdateTime = Date()
+        }
+    }
+    
+    func pause() {
+        Log.debug?.message("Player: Pause command")
+        if isPlaying {
+            isPlaying = false
+            lastUpdateTime = Date()
+        }
+    }
+    
+    func playPause() {
+        Log.debug?.message("Player: PlayPause command")
+        if isPlaying {
+            pause()
+        } else {
+            play()
+        }
+    }
+    
+    func next() {
+        Log.debug?.message("Player: Next command")
+        // Base implementation - subclasses should override for actual functionality
+        lastUpdateTime = Date()
+    }
+    
+    func previous() {
+        Log.debug?.message("Player: Previous command")
+        // Base implementation - subclasses should override for actual functionality
+        lastUpdateTime = Date()
+    }
+    
+    func stop() {
+        Log.debug?.message("Player: Stop command")
+        isPlaying = false
+        position = 0
+        lastUpdateTime = Date()
+    }
+    
+    func setVolume(_ newVolume: Int) {
+        Log.debug?.message("Player: Set volume to \(newVolume)")
+        volume = max(0, min(100, newVolume))
+        lastUpdateTime = Date()
+    }
+    
+    func seek(_ offsetMs: Int) {
+        Log.debug?.message("Player: Seek by \(offsetMs)ms")
+        let offsetSeconds = offsetMs / 1000
+        position = max(0, min(length, position + offsetSeconds))
+        lastUpdateTime = Date()
+    }
+    
+    func setPosition(_ positionMs: Int) {
+        Log.debug?.message("Player: Set position to \(positionMs)ms")
+        let positionSeconds = positionMs / 1000
+        position = max(0, min(length, positionSeconds))
+        lastUpdateTime = Date()
+    }
+    
+    func setLoopStatus(_ status: String) {
+        Log.debug?.message("Player: Set loop status to \(status)")
+        loopStatus = status
+        lastUpdateTime = Date()
+    }
+    
+    func setShuffle(_ shuffleEnabled: Bool) {
+        Log.debug?.message("Player: Set shuffle to \(shuffleEnabled)")
+        shuffle = shuffleEnabled
+        lastUpdateTime = Date()
+    }
+    
+    // MARK: - State Information
+    
+    /// Get current player state as a dictionary for sending in MPRIS packets
+    func getCurrentState() -> [String: Any] {
+        return [
+            "player": identity,
+            "pos": position,
+            "isPlaying": isPlaying,
+            "canPause": canPause,
+            "canPlay": canPlay,
+            "canGoNext": canGoNext,
+            "canGoPrevious": canGoPrevious,
+            "canSeek": canSeek,
+            "loopStatus": loopStatus,
+            "shuffle": shuffle,
+            "albumArtUrl": albumArtUrl,
+            "length": length,
+            "artist": artist,
+            "title": title,
+            "album": album,
+            "nowPlaying": "\(artist) - \(title)",
+            "volume": volume
+        ]
+    }
+}
+
 // MARK: - DataPacket (MPRIS)
 
 /// MPRIS service data packet utilities
@@ -951,6 +1826,12 @@ fileprivate extension DataPacket {
         case invalidVolume
         case invalidTransferringAlbumArt
         case partFileRenameFailed
+        case invalidAction
+        case invalidSetVolume
+        case invalidSetLoopStatus
+        case invalidSetShuffle
+        case invalidSeek
+        case invalidSetPosition
     }
     
     enum MprisProperty: String {
@@ -975,8 +1856,14 @@ fileprivate extension DataPacket {
         case requestNowPlaying = "requestNowPlaying"
         case requestVolume = "requestVolume"
         case setVolume = "setVolume"
+        case setLoopStatus = "setLoopStatus"
+        case setShuffle = "setShuffle"
         case Seek = "Seek"
         case SetPosition = "SetPosition"
+        case loopStatus = "loopStatus"
+        case shuffle = "shuffle"
+        case canSeek = "canSeek"
+        case nowPlaying = "nowPlaying"
     }
     
     // MARK: Properties
@@ -1152,4 +2039,94 @@ fileprivate extension DataPacket {
         return value
     }
     
+    // MARK: - Request Packet Methods
+    
+    func hasRequestPlayerList() throws -> Bool {
+        try validateMprisType()
+        return body.keys.contains(MprisProperty.requestPlayerList.rawValue)
+    }
+    
+    func hasRequestNowPlaying() throws -> Bool {
+        try validateMprisType()
+        return body.keys.contains(MprisProperty.requestNowPlaying.rawValue)
+    }
+    
+    func hasRequestVolume() throws -> Bool {
+        try validateMprisType()
+        return body.keys.contains(MprisProperty.requestVolume.rawValue)
+    }
+    
+    func getAction() throws -> String? {
+        try validateMprisType()
+        guard body.keys.contains(MprisProperty.action.rawValue) else { return nil }
+        guard let value = body[MprisProperty.action.rawValue] as? String else { 
+            throw MprisError.invalidAction 
+        }
+        return value
+    }
+    
+    func getSetVolume() throws -> Int? {
+        try validateMprisType()
+        guard body.keys.contains(MprisProperty.setVolume.rawValue) else { return nil }
+        guard let value = body[MprisProperty.setVolume.rawValue] as? Int else { 
+            throw MprisError.invalidSetVolume 
+        }
+        return value
+    }
+    
+    func getSetLoopStatus() throws -> String? {
+        try validateMprisType()
+        guard body.keys.contains(MprisProperty.setLoopStatus.rawValue) else { return nil }
+        guard let value = body[MprisProperty.setLoopStatus.rawValue] as? String else { 
+            throw MprisError.invalidSetLoopStatus 
+        }
+        return value
+    }
+    
+    func getSetShuffle() throws -> Bool? {
+        try validateMprisType()
+        guard body.keys.contains(MprisProperty.setShuffle.rawValue) else { return nil }
+        guard let value = body[MprisProperty.setShuffle.rawValue] as? Bool else { 
+            throw MprisError.invalidSetShuffle 
+        }
+        return value
+    }
+    
+    func getSeek() throws -> Int? {
+        try validateMprisType()
+        guard body.keys.contains(MprisProperty.Seek.rawValue) else { return nil }
+        guard let value = body[MprisProperty.Seek.rawValue] as? Int else { 
+            throw MprisError.invalidSeek 
+        }
+        return value
+    }
+    
+    func getSetPosition() throws -> Int? {
+        try validateMprisType()
+        guard body.keys.contains(MprisProperty.SetPosition.rawValue) else { return nil }
+        guard let value = body[MprisProperty.SetPosition.rawValue] as? Int else { 
+            throw MprisError.invalidSetPosition 
+        }
+        return value
+    }
+    
+    // MARK: - Packet Creation Methods for Local Players
+    
+    static func mprisPlayerListPacket(playerList: [String], supportAlbumArt: Bool) -> DataPacket {
+        return DataPacket(type: mprisPacketType, body: [
+            MprisProperty.playerList.rawValue: playerList as AnyObject,
+            MprisProperty.supportAlbumArtPayload.rawValue: supportAlbumArt as AnyObject
+        ])
+    }
+    
+    static func mprisUpdatePacket(state: [String: Any]) -> DataPacket {
+        var body: [String: AnyObject] = [:]
+        
+        for (key, value) in state {
+            body[key] = value as AnyObject
+        }
+        
+        return DataPacket(type: mprisPacketType, body: body)
+    }
+
 }

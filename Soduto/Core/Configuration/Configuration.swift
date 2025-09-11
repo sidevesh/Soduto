@@ -368,7 +368,7 @@ public class Configuration: ConnectionConfiguration, DeviceManagerConfiguration,
                 default: break
                 }
             } else {
-                if SMLoginItemSetEnabled("com.soduto.SodutoLauncher" as CFString, newValue) {
+                if SMLoginItemSetEnabled("com.sidevesh.SodutoLauncher" as CFString, newValue) {
                     self.userDefaults.set(newValue, forKey: Property.launchOnLogin.rawValue)
                 }
             }
