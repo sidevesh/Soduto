@@ -306,15 +306,15 @@ public class MPRISService: Service, DownloadTaskDelegate {
     private func setupLocalPlayers() {
         Log.debug?.message("MPRIS::Setting up local players")
         
-        // Create a real media remote player
+        // Create a real media remote player with dynamic naming
         let mediaRemotePlayer = MediaRemotePlayer(identity: "macOS.NowPlaying")
         
         // Check if MediaRemote framework loaded successfully
         if mediaRemotePlayer.isMediaRemoteAvailable {
-            // Set up state change callback
+            // Set up state change callback that also handles player identity changes
             mediaRemotePlayer.onStateChanged = { [weak self] in
                 Log.debug?.message("MPRIS::MediaRemote player state changed, broadcasting update")
-                self?.broadcastPlayerUpdate(mediaRemotePlayer)
+                self?.handleMediaRemotePlayerUpdate(mediaRemotePlayer)
             }
             
             localPlayers[mediaRemotePlayer.identity] = mediaRemotePlayer
@@ -322,6 +322,43 @@ public class MPRISService: Service, DownloadTaskDelegate {
         } else {
             Log.error?.message("MPRIS::MediaRemote framework not available - no local players will be available")
         }
+    }
+    
+    private func handleMediaRemotePlayerUpdate(_ player: MediaRemotePlayer) {
+        // Check if the app has changed and we need to update the player identity
+        let currentAppName = player.getCurrentAppName()
+        let expectedIdentity: String
+        
+        if !currentAppName.isEmpty && currentAppName != "Unknown App" {
+            expectedIdentity = currentAppName
+        } else {
+            expectedIdentity = "macOS.NowPlaying"
+        }
+        
+        // If the identity should change, update our player mapping
+        if player.identity != expectedIdentity {
+            Log.info?.message("MPRIS::Player identity changing from '\(player.identity)' to '\(expectedIdentity)'")
+            
+            // Remove old identity
+            localPlayers.removeValue(forKey: player.identity)
+            
+            // Update player identity
+            player.updateIdentity(expectedIdentity)
+            
+            // Add with new identity
+            localPlayers[expectedIdentity] = player
+            
+            Log.info?.message("MPRIS::Updated local players list: \(Array(localPlayers.keys))")
+            
+            // Send updated player list to all connected devices
+            for (_, device) in connectedDevices {
+                Log.debug?.message("MPRIS::Sending updated player list to \(device.name) due to identity change")
+                sendPlayerList(to: device)
+            }
+        }
+        
+        // Broadcast the update
+        broadcastPlayerUpdate(player)
     }
     
     private func handlePlayerCommand(action: String, player: PlayerLocal, fromDevice device: Device) {
@@ -1163,8 +1200,9 @@ class MediaRemotePlayer: PlayerLocal {
         case seekBackward = 8
     }
     
-    // Current app bundle identifier
+    // Current app bundle identifier and name
     private var currentAppBundleId: String = ""
+    private var currentAppName: String = ""
     
     // Track if MediaRemote framework is available
     var isMediaRemoteAvailable: Bool {
@@ -1456,9 +1494,19 @@ class MediaRemotePlayer: PlayerLocal {
         // Get app bundle identifier
         if let clientPropertiesData = information["kMRMediaRemoteNowPlayingInfoClientPropertiesData"] {
             if let bundleId = getBundleIdentifierFromClientProperties(clientPropertiesData) {
-                currentAppBundleId = bundleId
-                Log.debug?.message("MediaRemotePlayer: Now playing from app: \(bundleId)")
+                if currentAppBundleId != bundleId {
+                    currentAppBundleId = bundleId
+                    currentAppName = getAppNameFromBundleId(bundleId)
+                    Log.debug?.message("MediaRemotePlayer: Now playing from app: \(bundleId) (\(currentAppName))")
+                    hasChanges = true
+                }
             }
+        } else if !currentAppBundleId.isEmpty {
+            // No app is currently playing
+            currentAppBundleId = ""
+            currentAppName = ""
+            hasChanges = true
+            Log.debug?.message("MediaRemotePlayer: No app currently playing")
         }
         
         // Update artwork URL if available
@@ -1499,6 +1547,76 @@ class MediaRemotePlayer: PlayerLocal {
                      to: (@convention(c)(AnyObject?, Selector?, Any?) -> Void).self)(object, Selector("initWithData:"), clientPropertiesData)
         
         return getBundleIdFunc(object)
+    }
+    
+    private func getAppNameFromBundleId(_ bundleId: String) -> String {
+        // Map common bundle IDs to user-friendly names
+        let knownApps: [String: String] = [
+            "com.spotify.client": "Spotify",
+            "com.apple.Music": "Music",
+            "com.apple.Safari": "Safari",
+            "com.google.Chrome": "Chrome",
+            "org.mozilla.firefox": "Firefox",
+            "com.microsoft.edgemac": "Edge",
+            "com.apple.QuickTimePlayerX": "QuickTime Player",
+            "com.apple.TV": "TV",
+            "com.apple.podcasts": "Podcasts",
+            "com.netflix.Netflix": "Netflix",
+            "com.youtube.youtube": "YouTube",
+            "com.apple.WebKit.WebContent": "Safari",
+            "com.brave.Browser": "Brave",
+            "com.operasoftware.Opera": "Opera",
+            "com.vivaldi.Vivaldi": "Vivaldi",
+            "com.soundcloud.desktop": "SoundCloud",
+            "com.tidal.desktop": "TIDAL",
+            "com.amazon.music": "Amazon Music",
+            "com.pandora.desktop": "Pandora",
+            "fm.last.desktop": "Last.fm",
+            "com.apple.iWork.Keynote": "Keynote",
+            "com.microsoft.Powerpoint": "PowerPoint",
+            "us.zoom.xos": "Zoom",
+            "com.microsoft.teams": "Teams"
+        ]
+        
+        if let appName = knownApps[bundleId] {
+            Log.debug?.message("MediaRemotePlayer: Found known app name: \(appName) for bundle: \(bundleId)")
+            return appName
+        }
+        
+        // Try to get the app name from the bundle identifier
+        if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId),
+           let bundle = Bundle(url: appURL),
+           let displayName = bundle.localizedInfoDictionary?["CFBundleDisplayName"] as? String ?? bundle.infoDictionary?["CFBundleDisplayName"] as? String {
+            Log.debug?.message("MediaRemotePlayer: Found display name: \(displayName) for bundle: \(bundleId)")
+            return displayName
+        }
+        
+        if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId),
+           let bundle = Bundle(url: appURL),
+           let bundleName = bundle.localizedInfoDictionary?["CFBundleName"] as? String ?? bundle.infoDictionary?["CFBundleName"] as? String {
+            Log.debug?.message("MediaRemotePlayer: Found bundle name: \(bundleName) for bundle: \(bundleId)")
+            return bundleName
+        }
+        
+        // Fall back to extracting from bundle ID
+        let components = bundleId.split(separator: ".")
+        if let lastComponent = components.last {
+            let appName = String(lastComponent).capitalized
+            Log.debug?.message("MediaRemotePlayer: Using extracted name: \(appName) for bundle: \(bundleId)")
+            return appName
+        }
+        
+        Log.debug?.message("MediaRemotePlayer: Could not determine app name for bundle: \(bundleId)")
+        return "Unknown App"
+    }
+    
+    func getCurrentAppName() -> String {
+        return currentAppName
+    }
+    
+    override func updateIdentity(_ newIdentity: String) {
+        identity = newIdentity
+        Log.debug?.message("MediaRemotePlayer: Identity updated to: \(newIdentity)")
     }
     
     // MARK: - Player Controls (Override to use MediaRemote)
@@ -1590,9 +1708,10 @@ class MediaRemotePlayer: PlayerLocal {
     override func getCurrentState() -> [String: Any] {
         var state = super.getCurrentState()
         
-        // Add app bundle identifier if available
+        // Add app bundle identifier and name if available
         if !currentAppBundleId.isEmpty {
             state["nowPlayingApp"] = currentAppBundleId
+            state["appName"] = currentAppName
         }
         
         // Indicate that we support MediaRemote commands even if we don't have media info
@@ -1602,6 +1721,11 @@ class MediaRemotePlayer: PlayerLocal {
         if artist.isEmpty && title.isEmpty && length == 0 {
             state["playerStatus"] = "ready_no_media"
             state["statusMessage"] = "Media controls available (no active media)"
+            
+            // If we have an app name, show it in the status
+            if !currentAppName.isEmpty {
+                state["statusMessage"] = "\(currentAppName) media controls available (no active media)"
+            }
         }
         
         return state
@@ -1613,7 +1737,7 @@ class MediaRemotePlayer: PlayerLocal {
 class PlayerLocal: NSObject {
     
     // Player identity and metadata
-    let identity: String
+    private(set) var identity: String
     var isPlaying: Bool = false {
         didSet {
             if isPlaying != oldValue {
@@ -1773,6 +1897,14 @@ class PlayerLocal: NSObject {
         Log.debug?.message("Player: Set shuffle to \(shuffleEnabled)")
         shuffle = shuffleEnabled
         lastUpdateTime = Date()
+    }
+    
+    // MARK: - Identity Management
+    
+    /// Update the player identity (used for dynamic player names)
+    func updateIdentity(_ newIdentity: String) {
+        identity = newIdentity
+        Log.debug?.message("PlayerLocal: Identity updated to: \(newIdentity)")
     }
     
     // MARK: - State Information
