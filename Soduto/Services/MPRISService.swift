@@ -13,84 +13,10 @@ import MediaPlayer
 import UserNotifications
 import CommonCrypto
 
-/// MPRIS (Media Player Remote Interfacing Specification) Service
-/// 
-/// This service allows for remote control of media players on connected devices.
-/// 
-/// It receives packets with type "kdeconnect.mpris" containing:
-/// - playerList (array): list of available media players on the remote device
-/// - player (string): the player that sent the update
-/// - pos (int): current position in the track (in seconds)
-/// - isPlaying (boolean): whether the player is currently playing
-/// - canPause, canPlay, canGoNext, canGoPrevious (boolean): player capabilities
-/// - albumArtUrl (string): URL to album art image
-/// - length (int): track length in seconds
-/// - artist, title, album (string): track metadata
-/// - volume (int): player volume percentage (0-100)
-/// 
-/// It sends packets with type "kdeconnect.mpris.request" containing:
-/// - requestPlayerList (boolean): request a list of players
-/// - player (string): the player to control
-/// - requestNowPlaying (boolean): request current track info
-/// - requestVolume (boolean): request current volume
-/// - action (string): action to perform (Play, Pause, PlayPause, Next, Previous, Stop)
-/// - setVolume (int): set player volume (0-100)
-/// - Seek (int): seek position in ms
-/// - SetPosition (int): set position in ms
-/// - albumArtUrl (string): request album art for a URL
-///
-public class MPRISService: Service, DownloadTaskDelegate {
-    
-    let un = UNUserNotificationCenter.current()
-    
-    // MARK: Types
-    
-    public typealias PlayerIdentity = String
-    
-    enum UserInfoProperty: String {
-        case deviceId = "com.soduto.services.mpris.deviceId"
-        case playerIdentity = "com.soduto.services.mpris.playerIdentity"
-    }
-    
-    enum ActionId: ServiceAction.Id {
-        case refresh
-    }
-    
-    private struct DownloadInfo {
-        let task: DownloadTask
-        let fileHash: String?
-        let playerIdentity: String
-        let albumArtUrl: String
-        let partFileURL: URL
-        let device: Device
-        
-        init(task: DownloadTask, fileHash: String?, playerIdentity: String, albumArtUrl: String, partFileURL: URL, device: Device) {
-            self.task = task
-            self.fileHash = fileHash
-            self.playerIdentity = playerIdentity
-            self.albumArtUrl = albumArtUrl
-            self.partFileURL = partFileURL
-            self.device = device
-        }
-    }
-    
-    // MARK: Service properties
-    
-    public static let serviceId: Service.Id = "com.soduto.services.mpris"
-    
-    public let incomingCapabilities = Set<Service.Capability>([ DataPacket.mprisPacketType, DataPacket.mprisRequestPacketType ])
-    public let outgoingCapabilities = Set<Service.Capability>([ DataPacket.mprisRequestPacketType, DataPacket.mprisPacketType ])
-    
-    private var albumArtDownloadInfos: [DownloadInfo] = []
-    private var downloadedAlbumArtFileURLByPlayerIdentity: [String: URL] = [:]
-    private var cachedDownloadedAlbumArtFileURLByHash: [String: URL] = [:]
-    
-    /// Available remote players grouped by device
-    @Published private var players: [String: [PlayerRemote]] = [:]
-    /// Keeps track of the last player that was playing
-    private var lastActivePlayer: PlayerRemote? = nil
-    private var commandCenter = MPRemoteCommandCenter.shared()
-    
+// MARK: - Local Media Controller
+
+/// Handles local media player management and communication with remote devices
+class LocalMediaController: NSObject {
     /// Local media players that can be controlled by remote devices
     private var localPlayers: [String: PlayerLocal] = [:]
     /// Track connected devices for broadcasting updates
@@ -98,10 +24,8 @@ public class MPRISService: Service, DownloadTaskDelegate {
     
     // MARK: Initialization
     
-    public init() {
-        Log.info?.message("MPRIS::🎵 Initializing MPRIS Service for macOS media player control")
-        
-        setupCommandCenter()
+    override init() {
+        super.init()
         setupLocalPlayers()
         
         // Clean up old cache files on startup
@@ -110,199 +34,25 @@ public class MPRISService: Service, DownloadTaskDelegate {
             self?.logCacheStats()
         }
         
-        Log.info?.message("MPRIS::✅ MPRIS Service initialization complete - Ready to control \(localPlayers.count) local players from remote devices")
+        Log.info?.message("MPRIS::✅ Local Media Controller initialization complete - Ready to control \(localPlayers.count) local players from remote devices")
     }
     
-    // MARK: Service methods
+    // MARK: - Public Interface
     
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
-        
-        // Handle both MPRIS update packets and request packets
-        guard dataPacket.isMprisPacket || dataPacket.isMprisRequestPacket else { return false }
-        
-        Log.debug?.message("MPRIS::handleDataPacket(<\(dataPacket)> fromDevice:<\(device)> onConnection:<\(connection)>)")
-        
-        if dataPacket.isMprisPacket {
-            // Handle incoming player updates from remote devices
-            return handleMprisUpdate(dataPacket, fromDevice: device)
-        } else if dataPacket.isMprisRequestPacket {
-            // Handle incoming requests for local player control/info
-            return handleMprisRequest(dataPacket, fromDevice: device)
-        }
-        
-        return false
-    }
-    
-    public func setup(for device: Device) {
-        Log.info?.message("MPRIS::📱 Setting up MPRIS service for device: \(device.name)")
-        
-        // Track connected devices
+    func addConnectedDevice(_ device: Device) {
         connectedDevices[device.id] = device
-        
-        // Request remote player list
-        Log.debug?.message("MPRIS::Requesting player list from \(device.name)")
-        requestPlayerList(from: device)
-        
-        // Send our local player list after a small delay to ensure the device is ready
-        Log.info?.message("MPRIS::Preparing to share \(localPlayers.count) local players with \(device.name): \(Array(localPlayers.keys).joined(separator: ", "))")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            Log.info?.message("MPRIS::📤 Sending player list to \(device.name)")
-            self?.sendPlayerList(to: device)
-        }
     }
     
-    public func cleanup(for device: Device) {
-        // Remove from connected devices
+    func removeConnectedDevice(_ device: Device) {
         connectedDevices.removeValue(forKey: device.id)
-        
-        // Remove players for this device
-        if let devicePlayers = players.removeValue(forKey: device.id) {
-            for player in devicePlayers {
-                player.cleanup()
-            }
-        }
-        
-        // Cancel any ongoing album art downloads for this device
-        let downloadsToCancel = albumArtDownloadInfos.filter { $0.device.id == device.id }
-        for downloadInfo in downloadsToCancel {
-            Log.debug?.message("MPRIS::Cancelling album art download for device \(device.name)")
-            downloadInfo.task.cancel()
-        }
-        
-        // Remove download info for this device
-        albumArtDownloadInfos.removeAll { $0.device.id == device.id }
-        
-        // Clean up any player-specific album art files (keep cache for reuse)
-        let playerIdentities = Set(players.values.flatMap { $0 }.map { $0.identity })
-        downloadedAlbumArtFileURLByPlayerIdentity = downloadedAlbumArtFileURLByPlayerIdentity.filter { key, _ in
-            playerIdentities.contains(key)
-        }
     }
     
-    public func actions(for device: Device) -> [ServiceAction] {
-        guard device.incomingCapabilities.contains(DataPacket.mprisRequestPacketType) || 
-              device.outgoingCapabilities.contains(DataPacket.mprisPacketType) else { 
-            Log.debug?.message("MPRIS::Device \(device.name) doesn't support MPRIS capabilities")
-            return [] 
-        }
-        guard device.pairingStatus == .Paired else { 
-            Log.debug?.message("MPRIS::Device \(device.name) is not paired")
-            return [] 
-        }
-        
-        return [
-            ServiceAction(id: ActionId.refresh.rawValue, group: "setup", title: "Request Media Players", description: "Request available media players from the remote device", service: self, device: device)
-        ]
+    func getLocalPlayer(identity: String) -> PlayerLocal? {
+        return localPlayers[identity]
     }
     
-    public func performAction(_ id: ServiceAction.Id, forDevice device: Device) {
-        guard let actionId = ActionId(rawValue: id) else { return }
-        guard device.pairingStatus == .Paired else { return }
-        
-        switch actionId {
-        case .refresh:
-            requestPlayerList(from: device)
-        }
-    }
-    
-    // MARK: - Packet Handling Methods
-    
-    private func handleMprisUpdate(_ dataPacket: DataPacket, fromDevice device: Device) -> Bool {
-        do {
-            if let playerList = try dataPacket.getPlayerList() {
-                handlePlayerList(playerList, from: device)
-            } else if let player = try dataPacket.getPlayer() {
-                // Check if this is an album art transfer packet
-                if let isTransferringAlbumArt = try dataPacket.getTransferringAlbumArt(), isTransferringAlbumArt,
-                   let albumArtUrl = try dataPacket.getAlbumArtUrl(),
-                   dataPacket.hasPayload(),
-                   let downloadTask = dataPacket.downloadTask {
-                    handleAlbumArtTransfer(player: player, albumArtUrl: albumArtUrl, downloadTask: downloadTask, from: device)
-                } else {
-                    // Regular player update
-                    handlePlayerUpdate(player: player, packet: dataPacket, from: device)
-                }
-            }
-        } catch {
-            Log.error?.message("MPRIS::Error handling MPRIS update packet: \(error)")
-        }
-        
-        return true
-    }
-    
-    private func handleMprisRequest(_ dataPacket: DataPacket, fromDevice device: Device) -> Bool {
-        Log.debug?.message("MPRIS::Handling MPRIS request from \(device.name)")
-        
-        do {
-            // Check if this is a request for player list
-            if try dataPacket.hasRequestPlayerList() {
-                Log.debug?.message("MPRIS::Received player list request from \(device.name)")
-                sendPlayerList(to: device)
-                return true
-            }
-            
-            // Check if this is a player-specific request
-            guard let player = try dataPacket.getPlayer() else {
-                Log.warning?.message("MPRIS::Request packet without player or playerList request")
-                return true
-            }
-            
-            guard let localPlayer = localPlayers[player] else {
-                Log.warning?.message("MPRIS::Request for unknown local player: \(player)")
-                sendPlayerList(to: device) // Send updated player list
-                return true
-            }
-            
-            // Handle album art request
-            if let albumArtUrl = try dataPacket.getAlbumArtUrl() {
-                // TODO: Implement album art transfer for local players
-                Log.debug?.message("MPRIS::Album art request for \(player): \(albumArtUrl)")
-                return true
-            }
-            
-            // Handle player commands
-            if let action = try dataPacket.getAction() {
-                handlePlayerCommand(action: action, player: localPlayer, fromDevice: device)
-            }
-            
-            // Handle property setters
-            if let volume = try dataPacket.getSetVolume() {
-                localPlayer.setVolume(volume)
-                sendPlayerUpdate(localPlayer, to: device)
-            }
-            
-            if let loopStatus = try dataPacket.getSetLoopStatus() {
-                localPlayer.setLoopStatus(loopStatus)
-                sendPlayerUpdate(localPlayer, to: device)
-            }
-            
-            if let shuffle = try dataPacket.getSetShuffle() {
-                localPlayer.setShuffle(shuffle)
-                sendPlayerUpdate(localPlayer, to: device)
-            }
-            
-            if let seekOffset = try dataPacket.getSeek() {
-                localPlayer.seek(seekOffset)
-                sendPlayerUpdate(localPlayer, to: device)
-            }
-            
-            if let position = try dataPacket.getSetPosition() {
-                localPlayer.setPosition(position)
-                sendPlayerUpdate(localPlayer, to: device)
-            }
-            
-            // Handle information requests
-            let hasRequestNowPlaying = (try? dataPacket.hasRequestNowPlaying()) ?? false
-            let hasRequestVolume = (try? dataPacket.hasRequestVolume()) ?? false
-            if hasRequestNowPlaying || hasRequestVolume {
-                sendPlayerUpdate(localPlayer, to: device)
-            }
-            
-        } catch {
-            Log.error?.message("MPRIS::Error handling MPRIS request: \(error)")
-        }
-        
-        return true
+    func getAllLocalPlayers() -> [String: PlayerLocal] {
+        return localPlayers
     }
     
     // MARK: - Local Player Management
@@ -326,7 +76,7 @@ public class MPRISService: Service, DownloadTaskDelegate {
         // Create MediaRemoteAdapter player that interfaces with the perl script
         // Start with a generic identity that will be updated based on actual playing app
         let mediaRemoteAdapterPlayer = MediaRemoteAdapterPlayer(identity: "macOS.MediaRemote")
-        mediaRemoteAdapterPlayer.parentService = self // Set parent reference for identity updates
+        mediaRemoteAdapterPlayer.parentController = self // Set parent reference for identity updates
         localPlayers[mediaRemoteAdapterPlayer.identity] = mediaRemoteAdapterPlayer
         Log.debug?.message("MPRIS::✓ Created MediaRemoteAdapter player - \(mediaRemoteAdapterPlayer.identity)")
         
@@ -420,7 +170,7 @@ public class MPRISService: Service, DownloadTaskDelegate {
         }
     }
     
-    private func handlePlayerCommand(action: String, player: PlayerLocal, fromDevice device: Device) {
+    func handlePlayerCommand(action: String, player: PlayerLocal, fromDevice device: Device) {
         Log.info?.message("MPRIS::🎮 Remote control: \(device.name) sent '\(action)' command to \(player.identity)")
         
         let oldState = player.isPlaying
@@ -462,7 +212,7 @@ public class MPRISService: Service, DownloadTaskDelegate {
         sendPlayerUpdate(player, to: device)
     }
     
-    private func sendPlayerList(to device: Device) {
+    func sendPlayerList(to device: Device) {
         let playerIdentities = Array(localPlayers.keys).sorted() // Sort for consistency
         Log.debug?.message("MPRIS::Sending player list to \(device.name): \(playerIdentities)")
         
@@ -487,7 +237,7 @@ public class MPRISService: Service, DownloadTaskDelegate {
         }
     }
     
-    private func sendPlayerUpdate(_ player: PlayerLocal, to device: Device) {
+    func sendPlayerUpdate(_ player: PlayerLocal, to device: Device) {
         // Use the comprehensive update method for better GSConnect compatibility
         sendComprehensivePlayerUpdate(player, to: device)
     }
@@ -498,6 +248,419 @@ public class MPRISService: Service, DownloadTaskDelegate {
             sendPlayerUpdate(player, to: device)
         }
     }
+    
+    /// Send a comprehensive player update that matches GSConnect format
+    private func sendComprehensivePlayerUpdate(_ player: PlayerLocal, to device: Device) {
+        // Create a packet that matches the GSConnect format exactly
+        var body: [String: AnyObject] = [
+            "player": player.identity as AnyObject,
+            "isPlaying": player.isPlaying as AnyObject,
+            "pos": player.position as AnyObject,
+            "canPause": player.canPause as AnyObject,
+            "canPlay": player.canPlay as AnyObject,
+            "canGoNext": player.canGoNext as AnyObject,
+            "canGoPrevious": player.canGoPrevious as AnyObject,
+            "canSeek": player.canSeek as AnyObject,
+            "volume": player.volume as AnyObject,
+            "loopStatus": player.loopStatus as AnyObject,
+            "shuffle": player.shuffle as AnyObject
+        ]
+        
+        // Add metadata if available
+        if !player.artist.isEmpty {
+            body["artist"] = player.artist as AnyObject
+        }
+        
+        if !player.title.isEmpty {
+            body["title"] = player.title as AnyObject
+        }
+        
+        if !player.album.isEmpty {
+            body["album"] = player.album as AnyObject
+        }
+        
+        if player.length > 0 {
+            body["length"] = player.length as AnyObject
+        }
+        
+        // Create nowPlaying string like GSConnect does
+        var nowPlaying = ""
+        if !player.artist.isEmpty && !player.title.isEmpty {
+            nowPlaying = "\(player.artist) - \(player.title)"
+        } else if !player.artist.isEmpty {
+            nowPlaying = player.artist
+        } else if !player.title.isEmpty {
+            nowPlaying = player.title
+        } else {
+            nowPlaying = "Unknown"
+        }
+        body["nowPlaying"] = nowPlaying as AnyObject
+        
+        // Add album art URL if available
+        if !player.albumArtUrl.isEmpty {
+            body["albumArtUrl"] = player.albumArtUrl as AnyObject
+        } else {
+            body["albumArtUrl"] = "" as AnyObject
+        }
+        
+        let packet = DataPacket(type: DataPacket.mprisPacketType, body: body)
+        
+        Log.debug?.message("MPRIS::Sending comprehensive update for \(player.identity) to \(device.name)")
+        Log.debug?.message("MPRIS::Update data: isPlaying=\(player.isPlaying), nowPlaying='\(nowPlaying)', pos=\(player.position), volume=\(player.volume)")
+        
+        device.send(packet)
+    }
+    
+    // MARK: - Cache Management
+    
+    private func cleanupOldCacheFiles() {
+        let cacheDirectory = getCacheDirectory()
+        
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(at: cacheDirectory, 
+                                                                      includingPropertiesForKeys: [.contentModificationDateKey], 
+                                                                      options: [])
+            
+            let cutoffDate = Date().addingTimeInterval(-7 * 24 * 60 * 60) // 7 days ago
+            
+            for fileURL in contents {
+                if let modificationDate = try fileURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                   modificationDate < cutoffDate {
+                    try FileManager.default.removeItem(at: fileURL)
+                    Log.debug?.message("MPRIS::Cleaned up old cache file: \(fileURL.lastPathComponent)")
+                }
+            }
+        } catch {
+            Log.error?.message("MPRIS::Failed to cleanup old cache files: \(error)")
+        }
+    }
+    
+    private func logCacheStats() {
+        let cacheDirectory = getCacheDirectory()
+        
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(at: cacheDirectory, 
+                                                                      includingPropertiesForKeys: [.fileSizeKey], 
+                                                                      options: [])
+            
+            let totalSize = contents.compactMap { url -> Int? in
+                guard let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey]),
+                      let fileSize = resourceValues.fileSize else {
+                    return nil
+                }
+                return fileSize
+            }.reduce(0, +)
+            
+            Log.debug?.message("MPRIS::Cache stats - Files: \(contents.count), Total size: \(totalSize) bytes")
+        } catch {
+            Log.debug?.message("MPRIS::Could not get cache stats: \(error)")
+        }
+    }
+    
+    // Helper function needed for cache management
+    private func getCacheDirectory() -> URL {
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return documentsPath.appendingPathComponent("SodutoCache").appendingPathComponent("albumart")
+    }
+}
+
+/// MPRIS (Media Player Remote Interfacing Specification) Service
+/// 
+/// This service allows for remote control of media players on connected devices.
+/// 
+/// It receives packets with type "kdeconnect.mpris" containing:
+/// - playerList (array): list of available media players on the remote device
+/// - player (string): the player that sent the update
+/// - pos (int): current position in the track (in seconds)
+/// - isPlaying (boolean): whether the player is currently playing
+/// - canPause, canPlay, canGoNext, canGoPrevious (boolean): player capabilities
+/// - albumArtUrl (string): URL to album art image
+/// - length (int): track length in seconds
+/// - artist, title, album (string): track metadata
+/// - volume (int): player volume percentage (0-100)
+/// 
+/// It sends packets with type "kdeconnect.mpris.request" containing:
+/// - requestPlayerList (boolean): request a list of players
+/// - player (string): the player to control
+/// - requestNowPlaying (boolean): request current track info
+/// - requestVolume (boolean): request current volume
+/// - action (string): action to perform (Play, Pause, PlayPause, Next, Previous, Stop)
+/// - setVolume (int): set player volume (0-100)
+/// - Seek (int): seek position in ms
+/// - SetPosition (int): set position in ms
+/// - albumArtUrl (string): request album art for a URL
+///
+public class MPRISService: Service, DownloadTaskDelegate {
+    
+    let un = UNUserNotificationCenter.current()
+    
+    // MARK: Types
+    
+    public typealias PlayerIdentity = String
+    
+    enum UserInfoProperty: String {
+        case deviceId = "com.soduto.services.mpris.deviceId"
+        case playerIdentity = "com.soduto.services.mpris.playerIdentity"
+    }
+    
+    enum ActionId: ServiceAction.Id {
+        case refresh
+    }
+    
+    private struct DownloadInfo {
+        let task: DownloadTask
+        let fileHash: String?
+        let playerIdentity: String
+        let albumArtUrl: String
+        let partFileURL: URL
+        let device: Device
+        
+        init(task: DownloadTask, fileHash: String?, playerIdentity: String, albumArtUrl: String, partFileURL: URL, device: Device) {
+            self.task = task
+            self.fileHash = fileHash
+            self.playerIdentity = playerIdentity
+            self.albumArtUrl = albumArtUrl
+            self.partFileURL = partFileURL
+            self.device = device
+        }
+    }
+    
+    // MARK: Service properties
+    
+    public static let serviceId: Service.Id = "com.soduto.services.mpris"
+    
+    public let incomingCapabilities = Set<Service.Capability>([ DataPacket.mprisPacketType, DataPacket.mprisRequestPacketType ])
+    public let outgoingCapabilities = Set<Service.Capability>([ DataPacket.mprisRequestPacketType, DataPacket.mprisPacketType ])
+    
+    private var albumArtDownloadInfos: [DownloadInfo] = []
+    private var downloadedAlbumArtFileURLByPlayerIdentity: [String: URL] = [:]
+    private var cachedDownloadedAlbumArtFileURLByHash: [String: URL] = [:]
+    
+    /// Available remote players grouped by device
+    @Published private var players: [String: [PlayerRemote]] = [:]
+    /// Keeps track of the last player that was playing
+    private var lastActivePlayer: PlayerRemote? = nil
+    private var commandCenter = MPRemoteCommandCenter.shared()
+    
+    /// Local media controller - handles local media players that can be controlled by remote devices
+    private var localMediaController = LocalMediaController()
+    
+    // MARK: Initialization
+    
+    public init() {
+        setupCommandCenter()
+    }
+    
+    // MARK: Service methods
+    
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+        
+        guard dataPacket.isMprisPacket || dataPacket.isMprisRequestPacket else { return false }
+                
+        if dataPacket.isMprisPacket {
+            // Handle incoming player updates from remote devices
+            return handleMprisUpdate(dataPacket, fromDevice: device)
+        } else if dataPacket.isMprisRequestPacket {
+            // Handle incoming requests for local player control/info
+            return handleMprisRequest(dataPacket, fromDevice: device)
+        }
+        
+        return false
+    }
+    
+    public func setup(for device: Device) {
+        Log.info?.message("MPRIS::📱 Setting up MPRIS service for device: \(device.name)")
+        
+        // Track connected devices - using LocalMediaController
+        localMediaController.addConnectedDevice(device)
+        
+        // Request remote player list
+        Log.debug?.message("MPRIS::Requesting player list from \(device.name)")
+        requestPlayerList(from: device)
+        
+        // Send our local player list after a small delay to ensure the device is ready - using LocalMediaController
+        let localPlayers = localMediaController.getAllLocalPlayers()
+        Log.info?.message("MPRIS::Preparing to share \(localPlayers.count) local players with \(device.name): \(Array(localPlayers.keys).joined(separator: ", "))")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            Log.info?.message("MPRIS::📤 Sending player list to \(device.name)")
+            // Using LocalMediaController method for sending player list
+            self?.localMediaController.sendPlayerList(to: device)
+        }
+    }
+    
+    public func cleanup(for device: Device) {
+        // Remove from connected devices - using LocalMediaController
+        localMediaController.removeConnectedDevice(device)
+        
+        // Remove players for this device
+        if let devicePlayers = players.removeValue(forKey: device.id) {
+            for player in devicePlayers {
+                player.cleanup()
+            }
+        }
+        
+        // Cancel any ongoing album art downloads for this device
+        let downloadsToCancel = albumArtDownloadInfos.filter { $0.device.id == device.id }
+        for downloadInfo in downloadsToCancel {
+            Log.debug?.message("MPRIS::Cancelling album art download for device \(device.name)")
+            downloadInfo.task.cancel()
+        }
+        
+        // Remove download info for this device
+        albumArtDownloadInfos.removeAll { $0.device.id == device.id }
+        
+        // Clean up any player-specific album art files (keep cache for reuse)
+        let playerIdentities = Set(players.values.flatMap { $0 }.map { $0.identity })
+        downloadedAlbumArtFileURLByPlayerIdentity = downloadedAlbumArtFileURLByPlayerIdentity.filter { key, _ in
+            playerIdentities.contains(key)
+        }
+    }
+    
+    public func actions(for device: Device) -> [ServiceAction] {
+        guard device.incomingCapabilities.contains(DataPacket.mprisRequestPacketType) || 
+              device.outgoingCapabilities.contains(DataPacket.mprisPacketType) else { 
+            Log.debug?.message("MPRIS::Device \(device.name) doesn't support MPRIS capabilities")
+            return [] 
+        }
+        guard device.pairingStatus == .Paired else { 
+            Log.debug?.message("MPRIS::Device \(device.name) is not paired")
+            return [] 
+        }
+        
+        return [
+            ServiceAction(id: ActionId.refresh.rawValue, group: "setup", title: "Request Media Players", description: "Request available media players from the remote device", service: self, device: device)
+        ]
+    }
+    
+    public func performAction(_ id: ServiceAction.Id, forDevice device: Device) {
+        guard let actionId = ActionId(rawValue: id) else { return }
+        guard device.pairingStatus == .Paired else { return }
+        
+        switch actionId {
+        case .refresh:
+            requestPlayerList(from: device)
+        }
+    }
+    
+    // MARK: - Packet Handling Methods
+    
+    private func handleMprisUpdate(_ dataPacket: DataPacket, fromDevice device: Device) -> Bool {
+        do {
+            if let playerList = try dataPacket.getPlayerList() {
+                handlePlayerList(playerList, from: device)
+            } else if let player = try dataPacket.getPlayer() {
+                // Check if this is an album art transfer packet
+                if let isTransferringAlbumArt = try dataPacket.getTransferringAlbumArt(), isTransferringAlbumArt,
+                   let albumArtUrl = try dataPacket.getAlbumArtUrl(),
+                   dataPacket.hasPayload(),
+                   let downloadTask = dataPacket.downloadTask {
+                    handleAlbumArtTransfer(player: player, albumArtUrl: albumArtUrl, downloadTask: downloadTask, from: device)
+                } else {
+                    // Regular player update
+                    handlePlayerUpdate(player: player, packet: dataPacket, from: device)
+                }
+            }
+        } catch {
+            Log.error?.message("MPRIS::Error handling MPRIS update packet: \(error)")
+        }
+        
+        return true
+    }
+    
+    private func handleMprisRequest(_ dataPacket: DataPacket, fromDevice device: Device) -> Bool {
+        Log.debug?.message("MPRIS::Handling MPRIS request from \(device.name)")
+        
+        do {
+            // Check if this is a request for player list
+            if try dataPacket.hasRequestPlayerList() {
+                Log.debug?.message("MPRIS::Received player list request from \(device.name)")
+                // Using LocalMediaController method for sending player list
+                localMediaController.sendPlayerList(to: device)
+                return true
+            }
+            
+            // Check if this is a player-specific request
+            guard let player = try dataPacket.getPlayer() else {
+                Log.warning?.message("MPRIS::Request packet without player or playerList request")
+                return true
+            }
+            
+            // Using LocalMediaController to get local player
+            guard let localPlayer = localMediaController.getLocalPlayer(identity: player) else {
+                Log.warning?.message("MPRIS::Request for unknown local player: \(player)")
+                // Using LocalMediaController method for sending player list
+                localMediaController.sendPlayerList(to: device)
+                return true
+            }
+            
+            // Handle album art request
+            if let albumArtUrl = try dataPacket.getAlbumArtUrl() {
+                // TODO: Implement album art transfer for local players
+                Log.debug?.message("MPRIS::Album art request for \(player): \(albumArtUrl)")
+                return true
+            }
+            
+            // Handle player commands
+            if let action = try dataPacket.getAction() {
+                // Using LocalMediaController method for handling player commands
+                localMediaController.handlePlayerCommand(action: action, player: localPlayer, fromDevice: device)
+            }
+            
+            // Handle property setters
+            if let volume = try dataPacket.getSetVolume() {
+                localPlayer.setVolume(volume)
+                // Using LocalMediaController method for sending player update
+                sendPlayerUpdateViaLocalController(localPlayer, to: device)
+            }
+            
+            if let loopStatus = try dataPacket.getSetLoopStatus() {
+                localPlayer.setLoopStatus(loopStatus)
+                // Using LocalMediaController method for sending player update
+                sendPlayerUpdateViaLocalController(localPlayer, to: device)
+            }
+            
+            if let shuffle = try dataPacket.getSetShuffle() {
+                localPlayer.setShuffle(shuffle)
+                // Using LocalMediaController method for sending player update
+                sendPlayerUpdateViaLocalController(localPlayer, to: device)
+            }
+            
+            if let seekOffset = try dataPacket.getSeek() {
+                localPlayer.seek(seekOffset)
+                // Using LocalMediaController method for sending player update
+                sendPlayerUpdateViaLocalController(localPlayer, to: device)
+            }
+            
+            if let position = try dataPacket.getSetPosition() {
+                localPlayer.setPosition(position)
+                // Using LocalMediaController method for sending player update
+                sendPlayerUpdateViaLocalController(localPlayer, to: device)
+            }
+            
+            // Handle information requests
+            let hasRequestNowPlaying = (try? dataPacket.hasRequestNowPlaying()) ?? false
+            let hasRequestVolume = (try? dataPacket.hasRequestVolume()) ?? false
+            if hasRequestNowPlaying || hasRequestVolume {
+                // Using LocalMediaController method for sending player update
+                sendPlayerUpdateViaLocalController(localPlayer, to: device)
+            }
+            
+        } catch {
+            Log.error?.message("MPRIS::Error handling MPRIS request: \(error)")
+        }
+        
+        return true
+    }
+    
+    // MARK: - Helper Methods for LocalMediaController Integration
+    
+    /// Helper method to send player updates via LocalMediaController
+    private func sendPlayerUpdateViaLocalController(_ player: PlayerLocal, to device: Device) {
+        // Using LocalMediaController method for sending individual player update
+        localMediaController.sendPlayerUpdate(player, to: device)
+    }
+    
+    // MARK: - Local Player Management (Removed - Now handled by LocalMediaController)
     
     // MARK: DownloadTaskDelegate
     
@@ -874,69 +1037,7 @@ public class MPRISService: Service, DownloadTaskDelegate {
     private func requestAlbumArt(player: String, albumArtUrl: String, from device: Device) {
         device.send(DataPacket.mprisRequestAlbumArtPacket(player: player, albumArtUrl: albumArtUrl))
     }
-    
-    /// Send a comprehensive player update that matches GSConnect format
-    private func sendComprehensivePlayerUpdate(_ player: PlayerLocal, to device: Device) {
-        // Create a packet that matches the GSConnect format exactly
-        var body: [String: AnyObject] = [
-            "player": player.identity as AnyObject,
-            "isPlaying": player.isPlaying as AnyObject,
-            "pos": player.position as AnyObject,
-            "canPause": player.canPause as AnyObject,
-            "canPlay": player.canPlay as AnyObject,
-            "canGoNext": player.canGoNext as AnyObject,
-            "canGoPrevious": player.canGoPrevious as AnyObject,
-            "canSeek": player.canSeek as AnyObject,
-            "volume": player.volume as AnyObject,
-            "loopStatus": player.loopStatus as AnyObject,
-            "shuffle": player.shuffle as AnyObject
-        ]
         
-        // Add metadata if available
-        if !player.artist.isEmpty {
-            body["artist"] = player.artist as AnyObject
-        }
-        
-        if !player.title.isEmpty {
-            body["title"] = player.title as AnyObject
-        }
-        
-        if !player.album.isEmpty {
-            body["album"] = player.album as AnyObject
-        }
-        
-        if player.length > 0 {
-            body["length"] = player.length as AnyObject
-        }
-        
-        // Create nowPlaying string like GSConnect does
-        var nowPlaying = ""
-        if !player.artist.isEmpty && !player.title.isEmpty {
-            nowPlaying = "\(player.artist) - \(player.title)"
-        } else if !player.artist.isEmpty {
-            nowPlaying = player.artist
-        } else if !player.title.isEmpty {
-            nowPlaying = player.title
-        } else {
-            nowPlaying = "Unknown"
-        }
-        body["nowPlaying"] = nowPlaying as AnyObject
-        
-        // Add album art URL if available
-        if !player.albumArtUrl.isEmpty {
-            body["albumArtUrl"] = player.albumArtUrl as AnyObject
-        } else {
-            body["albumArtUrl"] = "" as AnyObject
-        }
-        
-        let packet = DataPacket(type: DataPacket.mprisPacketType, body: body)
-        
-        Log.debug?.message("MPRIS::Sending comprehensive update for \(player.identity) to \(device.name)")
-        Log.debug?.message("MPRIS::Update data: isPlaying=\(player.isPlaying), nowPlaying='\(nowPlaying)', pos=\(player.position), volume=\(player.volume)")
-        
-        device.send(packet)
-    }
-    
     // MARK: Private methods - Album Art Download
     
     private func startAlbumArtDownload(player: String, albumArtUrl: String, downloadTask: DownloadTask, from device: Device) {
@@ -1091,52 +1192,6 @@ public class MPRISService: Service, DownloadTaskDelegate {
             return cacheFileURL
         }
         return nil
-    }
-    
-    // MARK: Cache Management
-    
-    private func cleanupOldCacheFiles() {
-        let cacheDirectory = getCacheDirectory()
-        
-        do {
-            let contents = try FileManager.default.contentsOfDirectory(at: cacheDirectory, 
-                                                                      includingPropertiesForKeys: [.contentModificationDateKey], 
-                                                                      options: [])
-            
-            let cutoffDate = Date().addingTimeInterval(-7 * 24 * 60 * 60) // 7 days ago
-            
-            for fileURL in contents {
-                if let modificationDate = try fileURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-                   modificationDate < cutoffDate {
-                    try FileManager.default.removeItem(at: fileURL)
-                    Log.debug?.message("MPRIS::Cleaned up old cache file: \(fileURL.lastPathComponent)")
-                }
-            }
-        } catch {
-            Log.error?.message("MPRIS::Failed to cleanup old cache files: \(error)")
-        }
-    }
-    
-    private func logCacheStats() {
-        let cacheDirectory = getCacheDirectory()
-        
-        do {
-            let contents = try FileManager.default.contentsOfDirectory(at: cacheDirectory, 
-                                                                      includingPropertiesForKeys: [.fileSizeKey], 
-                                                                      options: [])
-            
-            let totalSize = contents.compactMap { url -> Int? in
-                guard let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey]),
-                      let fileSize = resourceValues.fileSize else {
-                    return nil
-                }
-                return fileSize
-            }.reduce(0, +)
-            
-            Log.debug?.message("MPRIS::Cache stats - Files: \(contents.count), Total size: \(totalSize) bytes")
-        } catch {
-            Log.debug?.message("MPRIS::Could not get cache stats: \(error)")
-        }
     }
 }
 
@@ -1870,7 +1925,7 @@ class MediaRemoteAdapterPlayer: PlayerLocal {
     private var streamPipe: Pipe?
     private var streamTask: Task<Void, Never>?
     private var lastPlayerInfo: [String: Any] = [:]
-    weak var parentService: MPRISService?
+    weak var parentController: LocalMediaController?
     
     override init(identity: String = "macOS.MediaRemote") {
         super.init(identity: identity)
@@ -2294,7 +2349,7 @@ class MediaRemoteAdapterPlayer: PlayerLocal {
     
     private func updatePlayerIdentity(from oldIdentity: String, to newIdentity: String) {
         // Notify the parent service to update the player mapping
-        parentService?.updateLocalPlayerIdentity(from: oldIdentity, to: newIdentity, player: self)
+        parentController?.updateLocalPlayerIdentity(from: oldIdentity, to: newIdentity, player: self)
     }
     
     private func fetchCurrentMediaInfo() async {
