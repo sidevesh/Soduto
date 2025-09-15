@@ -1913,8 +1913,8 @@ class MediaRemoteAdapterPlayer: PlayerLocal {
         
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
-        process.arguments = [scriptPath, frameworkPath, "stream", "--debounce=500"]
-        
+        process.arguments = [scriptPath, frameworkPath, "stream", "--debounce=500", "--human-readable"]
+
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe // Capture errors too
@@ -1976,15 +1976,8 @@ class MediaRemoteAdapterPlayer: PlayerLocal {
                 
                 buffer.append(chunk)
                 
-                // Process complete JSON lines
-                while let range = buffer.range(of: "\n") {
-                    let line = String(buffer[..<range.lowerBound])
-                    buffer = String(buffer[range.upperBound...])
-                    
-                    if !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        await processJSONLine(line)
-                    }
-                }
+                // Process complete JSON objects
+                await processCompleteJSONObjects(from: &buffer)
                 
             } catch {
                 Log.error?.message("MediaRemoteAdapterPlayer: Error reading from stream: \(error)")
@@ -2000,12 +1993,80 @@ class MediaRemoteAdapterPlayer: PlayerLocal {
         Log.debug?.message("MediaRemoteAdapterPlayer: Stopped processing media stream")
     }
     
-    private func processJSONLine(_ line: String) async {
-        // Create a cleaned version of the JSON for logging (remove large artworkData)
-        let cleanedLine = cleanJSONForLogging(line)
-        Log.info?.message("MediaRemoteAdapterPlayer: 📥 Received JSON: \(cleanedLine)")
+    private func processCompleteJSONObjects(from buffer: inout String) async {
+        var startIndex = buffer.startIndex
         
-        guard let data = line.data(using: .utf8) else { return }
+        while startIndex < buffer.endIndex {
+            // Skip whitespace and newlines
+            while startIndex < buffer.endIndex && buffer[startIndex].isWhitespace {
+                startIndex = buffer.index(after: startIndex)
+            }
+            
+            // Check if we have enough data to start parsing
+            guard startIndex < buffer.endIndex else { break }
+            
+            // Find the start of a JSON object
+            if buffer[startIndex] != "{" {
+                // Skip non-JSON content until we find a JSON object
+                if let nextBrace = buffer[startIndex...].firstIndex(of: "{") {
+                    startIndex = nextBrace
+                } else {
+                    // No JSON object found, clear buffer up to current position
+                    buffer = String(buffer[startIndex...])
+                    return
+                }
+                continue
+            }
+            
+            // Find the complete JSON object by counting braces
+            var braceCount = 0
+            var currentIndex = startIndex
+            var inString = false
+            var escaped = false
+            
+            while currentIndex < buffer.endIndex {
+                let char = buffer[currentIndex]
+                
+                if escaped {
+                    escaped = false
+                } else if char == "\\" && inString {
+                    escaped = true
+                } else if char == "\"" {
+                    inString.toggle()
+                } else if !inString {
+                    if char == "{" {
+                        braceCount += 1
+                    } else if char == "}" {
+                        braceCount -= 1
+                        if braceCount == 0 {
+                            // Found complete JSON object
+                            let endIndex = buffer.index(after: currentIndex)
+                            let jsonString = String(buffer[startIndex..<endIndex])
+                            
+                            // Process the complete JSON object
+                            await processJSONObject(jsonString)
+                            
+                            // Remove processed JSON from buffer
+                            buffer = String(buffer[endIndex...])
+                            return
+                        }
+                    }
+                }
+                
+                currentIndex = buffer.index(after: currentIndex)
+            }
+            
+            // Incomplete JSON object, leave it in buffer for next iteration
+            break
+        }
+    }
+    
+    private func processJSONObject(_ jsonString: String) async {
+        // Create a cleaned version of the JSON for logging (remove large artworkData)
+        let cleanedJSON = cleanJSONForLogging(jsonString)
+        Log.info?.message("MediaRemoteAdapterPlayer: 📥 Received JSON object: \(cleanedJSON)")
+        
+        guard let data = jsonString.data(using: .utf8) else { return }
         
         do {
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -2016,7 +2077,7 @@ class MediaRemoteAdapterPlayer: PlayerLocal {
             await updateFromMediaRemoteData(json)
             
         } catch {
-            Log.debug?.message("MediaRemoteAdapterPlayer: Failed to parse JSON line (normal for non-JSON output): \(error)")
+            Log.debug?.message("MediaRemoteAdapterPlayer: Failed to parse JSON object: \(error)")
         }
     }
     
