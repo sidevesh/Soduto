@@ -351,10 +351,18 @@ public class Connection: NSObject, GCDAsyncSocketDelegate, PairingHandlerDelegat
     
     public func uploadTask(_ task: UploadTask, finishedWithSuccess payloadSent: Bool) {
         Log.debug?.message("uploadTask(<\(task)> finishedWithSuccess:<\(payloadSent)>)")
-        ShareService().showUploadFinishNotification(uploadTask: task, succeeded: payloadSent)
         
         assert(self.packetsSending.index(where: { $0.uploadTask === task }) != nil, "Data packet is not in the packetsSending list.")
         guard let index = self.packetsSending.index(where: { $0.uploadTask === task }) else { return }
+        
+        // Check if this is an MPRIS album art transfer - don't show file sharing notifications for these
+        let packet = self.packetsSending[index].dataPacket
+        let isAlbumArtTransfer = packet.type == "kdeconnect.mpris" && 
+                                 packet.body["transferringAlbumArt"] as? Bool == true
+        
+        if !isAlbumArtTransfer {
+            ShareService().showUploadFinishNotification(uploadTask: task, succeeded: payloadSent)
+        }
         
         self.packetsSending[index].payloadSent = true
         

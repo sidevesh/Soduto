@@ -1,9 +1,9 @@
 //
-//  MPRISService.swift
+//  NotificationsService.swift
 //  Soduto
 //
-//  Created by AI Assistant on 2025-05-20.
-//  Copyright © 2025 Soduto. All rights reserved.
+//  Created by Giedrius Stanevičius on 2016-11-26.
+//  Copyright © 2016 Soduto. All rights reserved.
 //
 
 import Foundation
@@ -193,7 +193,7 @@ class LocalMediaController: NSObject {
         var body: [String: AnyObject] = [
             "player": player.identity as AnyObject,
             "isPlaying": player.isPlaying as AnyObject,
-            "pos": player.position as AnyObject,
+            "pos": (player.position * 1000) as AnyObject, // Convert seconds to milliseconds
             "canPause": player.canPause as AnyObject,
             "canPlay": player.canPlay as AnyObject,
             "canGoNext": player.canGoNext as AnyObject,
@@ -218,7 +218,7 @@ class LocalMediaController: NSObject {
         }
         
         if player.length > 0 {
-            body["length"] = player.length as AnyObject
+            body["length"] = (player.length * 1000) as AnyObject // Convert seconds to milliseconds
         }
         
         // Create nowPlaying string like GSConnect does
@@ -250,6 +250,11 @@ class LocalMediaController: NSObject {
     
     private func cleanupOldCacheFiles() {
         let cacheDirectory = getCacheDirectory()
+        
+        // Check if cache directory exists, if not, nothing to clean up
+        guard FileManager.default.fileExists(atPath: cacheDirectory.path) else {
+            return
+        }
         
         do {
             let contents = try FileManager.default.contentsOfDirectory(at: cacheDirectory, 
@@ -371,10 +376,10 @@ public class MPRISService: Service, DownloadTaskDelegate {
                 
         if dataPacket.isMprisPacket {
             // Handle incoming player updates from remote devices
-            return handleMprisUpdate(dataPacket, fromDevice: device)
+            return handleMprisUpdate(dataPacket, fromDevice: device, onConnection: connection)
         } else if dataPacket.isMprisRequestPacket {
             // Handle incoming requests for local player control/info
-            return handleMprisRequest(dataPacket, fromDevice: device)
+            return handleMprisRequest(dataPacket, fromDevice: device, onConnection: connection)
         }
         
         return false
@@ -405,7 +410,7 @@ public class MPRISService: Service, DownloadTaskDelegate {
             }
         }
         
-        // Cancel any ongoing album art downloads for this device
+        // Cancel any ongoing album art downloads and uploads for this device
         let downloadsToCancel = albumArtDownloadInfos.filter { $0.device.id == device.id }
         for downloadInfo in downloadsToCancel {
             downloadInfo.task.cancel()
@@ -447,7 +452,7 @@ public class MPRISService: Service, DownloadTaskDelegate {
     
     // MARK: - Packet Handling Methods
     
-    private func handleMprisUpdate(_ dataPacket: DataPacket, fromDevice device: Device) -> Bool {
+    private func handleMprisUpdate(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
         do {
             if let playerList = try dataPacket.getPlayerList() {
                 handlePlayerList(playerList, from: device)
@@ -470,7 +475,7 @@ public class MPRISService: Service, DownloadTaskDelegate {
         return true
     }
     
-    private func handleMprisRequest(_ dataPacket: DataPacket, fromDevice device: Device) -> Bool {
+    private func handleMprisRequest(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
         do {
             // Check if this is a request for player list
             if try dataPacket.hasRequestPlayerList() {
@@ -494,7 +499,7 @@ public class MPRISService: Service, DownloadTaskDelegate {
             
             // Handle album art request
             if let albumArtUrl = try dataPacket.getAlbumArtUrl() {
-                // TODO: Implement album art transfer for local players
+                handleAlbumArtRequest(player: player, albumArtUrl: albumArtUrl, localPlayer: localPlayer, from: device, onConnection: connection)
                 return true
             }
             
@@ -526,6 +531,7 @@ public class MPRISService: Service, DownloadTaskDelegate {
             }
             
             if let position = try dataPacket.getSetPosition() {
+                Log.info?.message("MPRIS: Received SetPosition request: \(position)ms for player \(localPlayer.identity)")
                 localPlayer.setPosition(position)
                 localMediaController.sendPlayerUpdate(localPlayer, to: device)
             }
@@ -542,6 +548,76 @@ public class MPRISService: Service, DownloadTaskDelegate {
         }
         
         return true
+    }
+    
+    // MARK: Private methods - Album Art Upload
+    
+    private func handleAlbumArtRequest(player: String, albumArtUrl: String, localPlayer: LocalPlayer, from device: Device, onConnection connection: Connection) {
+        // Ensure the requested albumArtUrl matches the current player's albumArtUrl
+        guard !localPlayer.albumArtUrl.isEmpty && localPlayer.albumArtUrl == albumArtUrl else {
+            Log.warning?.message("MPRIS::Album art request for invalid or outdated URL: \(albumArtUrl)")
+            return
+        }
+        
+        // Get artwork data from the local player
+        guard let artworkData = localPlayer.albumArtData, !artworkData.isEmpty else {
+            Log.warning?.message("MPRIS::No artwork data available for player: \(player)")
+            return
+        }
+        
+        Log.info?.message("MPRIS::Sending album art for player '\(player)' (\(artworkData.count) bytes)")
+        
+        // Create a temporary file for the album art
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFileName = "album-art-\(UUID().uuidString).jpg"
+        let tempFileURL = tempDir.appendingPathComponent(tempFileName)
+        
+        do {
+            // Write artwork data to temporary file
+            try artworkData.write(to: tempFileURL)
+            
+            // Create MPRIS packet with transferringAlbumArt flag - this is key to avoid file sharing notifications
+            var transferPacket = DataPacket(type: DataPacket.mprisPacketType, body: [
+                "transferringAlbumArt": true as AnyObject,
+                "player": player as AnyObject,
+                "albumArtUrl": albumArtUrl as AnyObject
+            ])
+            
+            // Create file input stream
+            guard let fileInputStream = InputStream(url: tempFileURL) else {
+                Log.error?.message("MPRIS::Failed to create input stream for album art")
+                try? FileManager.default.removeItem(at: tempFileURL)
+                return
+            }
+            
+            transferPacket.payload = fileInputStream
+            transferPacket.payloadSize = Int64(artworkData.count)
+            
+            // Create upload task
+            if let uploadTask = UploadTask(packet: transferPacket, connection: connection, readQueue: DispatchQueue.global(qos: .utility)) {
+                // Set payload info
+                transferPacket.payloadInfo = uploadTask.payloadInfo
+                
+                // Send the packet - the transferringAlbumArt flag should prevent file sharing notifications
+                device.send(transferPacket) { [weak self] (success, _) in
+                    if success {
+                        Log.debug?.message("MPRIS::Successfully sent album art for player: \(player)")
+                    } else {
+                        Log.error?.message("MPRIS::Failed to send album art for player: \(player)")
+                    }
+                    
+                    // Clean up temp file
+                    try? FileManager.default.removeItem(at: tempFileURL)
+                }
+            } else {
+                Log.error?.message("MPRIS::Failed to create upload task for album art")
+                try? FileManager.default.removeItem(at: tempFileURL)
+            }
+            
+        } catch {
+            Log.error?.message("MPRIS::Failed to prepare album art file: \(error)")
+            try? FileManager.default.removeItem(at: tempFileURL)
+        }
     }
     
     // MARK: DownloadTaskDelegate
@@ -608,6 +684,8 @@ public class MPRISService: Service, DownloadTaskDelegate {
             }
         }
     }
+    
+
     
     // MARK: Private methods - Packet Handlers
     
@@ -942,6 +1020,11 @@ public class MPRISService: Service, DownloadTaskDelegate {
     }
     
     private func getHashForAlbumArt(player: String, albumArtUrl: String) -> String? {
+        // Handle KDE Connect URLs by extracting the kdeArtHash parameter
+        if albumArtUrl.hasPrefix("kdeconnect:/") {
+            return extractHashFromKdeConnectUrl(albumArtUrl)
+        }
+        
         // Use MD5 hash like GSConnect for better cache compatibility
         let inputString = albumArtUrl // GSConnect uses just the URL for hashing
         guard let inputData = inputString.data(using: .utf8) else { return nil }
@@ -952,6 +1035,15 @@ public class MPRISService: Service, DownloadTaskDelegate {
         }
         
         return hash.map { String(format: "%02x", $0) }.joined()
+    }
+    
+    private func extractHashFromKdeConnectUrl(_ url: String) -> String? {
+        // Extract kdeArtHash parameter from URLs like:
+        // "kdeconnect:/artUri?orig=...&kdeArtHash=1743422039"
+        guard let urlComponents = URLComponents(string: url),
+              let queryItems = urlComponents.queryItems else { return nil }
+        
+        return queryItems.first { $0.name == "kdeArtHash" }?.value
     }
     
     private func getCacheDirectory() -> URL {
@@ -1442,25 +1534,25 @@ class MediaRemoteBasedLocalPlayer: LocalPlayer {
             changesSummary.append("album: '\(oldAlbum)' → '\(album)'")
         }
         
-        // Update duration (convert from seconds to milliseconds for MPRIS)
+        // Update duration (keep in seconds as per property declaration)
         if let duration = payload["duration"] as? Double {
-            let newLength = Int(duration * 1000) // Convert to milliseconds
+            let newLength = Int(duration) // Keep in seconds
             if newLength != length {
                 let oldLength = length
                 length = newLength
                 hasChanges = true
-                changesSummary.append("duration: \(oldLength / 1000)s → \(length / 1000)s")
+                changesSummary.append("duration: \(oldLength)s → \(length)s")
             }
         }
         
-        // Update position (convert from seconds to milliseconds for MPRIS)
+        // Update position (keep in seconds as per property declaration)
         if let elapsed = payload["elapsedTime"] as? Double {
-            let newPosition = Int(elapsed * 1000) // Convert to milliseconds
-            if abs(newPosition - position) > 2000 { // Only log significant position changes (>2s)
+            let newPosition = Int(elapsed) // Keep in seconds
+            if abs(newPosition - position) > 2 { // Only log significant position changes (>2s)
                 let oldPosition = position
                 position = newPosition
                 hasChanges = true
-                changesSummary.append("position: \(oldPosition / 1000)s → \(position / 1000)s")
+                changesSummary.append("position: \(oldPosition)s → \(position)s")
             } else if newPosition != position {
                 // Update position without logging for minor changes
                 position = newPosition
@@ -1526,9 +1618,11 @@ class MediaRemoteBasedLocalPlayer: LocalPlayer {
             if let artworkData = Data(base64Encoded: artworkDataString.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 if albumArtData != artworkData {
                     albumArtData = artworkData
-                    // Create a proper data URL with MIME type if available
-                    let mimeType = payload["artworkMimeType"] as? String ?? "image/jpeg"
-                    albumArtUrl = "data:\(mimeType);base64,\(artworkDataString)"
+                    // Create a KDE Connect album art URL format that allows remote devices to request the artwork
+                    // Similar to GSConnect format: "kdeconnect:/artUri?orig=...&kdeArtHash=..."
+                    let artHash = createAlbumArtHash(from: artworkData)
+                    let originalIdentifier = identity.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? identity
+                    albumArtUrl = "kdeconnect:/artUri?orig=\(originalIdentifier)&kdeArtHash=\(artHash)"
                     hasChanges = true
                     changesSummary.append("artwork updated (\(artworkData.count) bytes)")
                 }
@@ -1591,6 +1685,13 @@ class MediaRemoteBasedLocalPlayer: LocalPlayer {
     private func updatePlayerIdentity(from oldIdentity: String, to newIdentity: String) {
         // Notify the parent service to update the player mapping
         parentController?.updateLocalPlayerIdentity(from: oldIdentity, to: newIdentity, player: self)
+    }
+    
+    private func createAlbumArtHash(from artworkData: Data) -> String {
+        // Create a simple integer hash similar to GSConnect format
+        // This matches the format seen in the example: kdeArtHash=1743422039
+        let hash = artworkData.hashValue
+        return String(abs(hash))
     }
     
     private func fetchCurrentMediaInfo() async {
@@ -1657,15 +1758,19 @@ class MediaRemoteBasedLocalPlayer: LocalPlayer {
     }
     
     override func seek(_ offsetMs: Int) {
-        // Convert milliseconds to microseconds for MediaRemoteAdapter
+        // Convert current position from seconds to microseconds
+        let currentPositionMicros = position * 1_000_000
+        // Convert offset from milliseconds to microseconds
         let offsetMicros = offsetMs * 1000
-        let newPositionMicros = max(0, (position * 1000) + offsetMicros)
+        // Calculate new position and ensure it's not negative
+        let newPositionMicros = max(0, currentPositionMicros + offsetMicros)
         sendMediaRemoteCommand("seek", parameters: ["\(newPositionMicros)"])
     }
     
     override func setPosition(_ positionMs: Int) {
         // Convert milliseconds to microseconds for MediaRemoteAdapter
         let positionMicros = positionMs * 1000
+        Log.info?.message("MediaRemoteBasedLocalPlayer: Setting position to \(positionMs)ms (\(positionMicros) microseconds). Current position: \(position)s, length: \(length)s")
         sendMediaRemoteCommand("seek", parameters: ["\(positionMicros)"])
     }
     
@@ -1711,9 +1816,21 @@ class MediaRemoteBasedLocalPlayer: LocalPlayer {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
             process.arguments = [scriptPath, frameworkPath, command] + parameters
             
+            // Create pipes to capture output
+            let outputPipe = Pipe()
+            let errorPipe = Pipe()
+            process.standardOutput = outputPipe
+            process.standardError = errorPipe
+            
             do {
                 try process.run()
                 process.waitUntilExit()
+                
+                // Read output and error data
+                let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                let outputString = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let errorString = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 
                 let success = process.terminationStatus == 0
                 if success {
@@ -1728,7 +1845,14 @@ class MediaRemoteBasedLocalPlayer: LocalPlayer {
                     try await Task.sleep(nanoseconds: 100_000_000) // 100 milliseconds
                     await fetchCurrentMediaInfo()
                 } else {
-                    Log.warning?.message("MediaRemoteBasedLocalPlayer: ❌ Failed to send \(command) command (exit code: \(process.terminationStatus))")
+                    var errorMessage = "MediaRemoteBasedLocalPlayer: ❌ Failed to send \(command) command (exit code: \(process.terminationStatus))"
+                    if !outputString.isEmpty {
+                        errorMessage += " - stdout: \(outputString)"
+                    }
+                    if !errorString.isEmpty {
+                        errorMessage += " - stderr: \(errorString)"
+                    }
+                    Log.warning?.message(errorMessage)
                 }
                 
             } catch {
@@ -1937,7 +2061,7 @@ class LocalPlayer: NSObject {
     func getCurrentState() -> [String: Any] {
         return [
             "player": identity,
-            "pos": position,
+            "pos": position * 1000, // Convert seconds to milliseconds for remote devices
             "isPlaying": isPlaying,
             "canPause": canPause,
             "canPlay": canPlay,
@@ -1947,7 +2071,7 @@ class LocalPlayer: NSObject {
             "loopStatus": loopStatus,
             "shuffle": shuffle,
             "albumArtUrl": albumArtUrl,
-            "length": length,
+            "length": length * 1000, // Convert seconds to milliseconds for remote devices
             "artist": artist,
             "title": title,
             "album": album,
