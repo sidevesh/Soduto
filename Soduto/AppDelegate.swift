@@ -84,7 +84,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
         self.serviceManager.add(service: RemoteKeyboardService())
         self.serviceManager.add(service: RunCommandService())
         self.serviceManager.add(service: MacToRemoteInputService())
-        self.serviceManager.add(service: MPRISService())
+        self.serviceManager.add(service: MPRISFromRemoteService())
+        self.serviceManager.add(service: MPRISToRemoteService())
         un.delegate = self
         self.updateValidDevices()
         let notificationName = "com.Soduto.Share" as CFString
