@@ -637,10 +637,13 @@ public class RemoteControlService: OutgoingService, ObservableObject {
                 service.sendSpecialKey(specialKey, shift: shift, ctrl: ctrl, alt: alt, command: command, to: device)
             } else {
                 // KDE Connect Android: spoon-feed event.characters. Other targets: base glyph + modifiers.
+                // With Control held, `characters` is an ASCII control character (Ctrl+C → "\u{3}"), which
+                // KDE Connect Android's keyboard receiver can't match against its Ctrl+C/V/X/A handling,
+                // so send the plain key instead (`charactersIgnoringModifiers` only keeps Shift's effect).
                 let key: String
                 if service.isVanillaAndroid {
                     if let nsEvent = NSEvent(cgEvent: event) {
-                        key = nsEvent.characters ?? ""
+                        key = (ctrl ? nsEvent.charactersIgnoringModifiers : nsEvent.characters) ?? ""
                     } else { key = "" }
                 } else {
                     key = rawBaseCharacter(for: keyCode) ?? ""
