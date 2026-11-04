@@ -162,7 +162,7 @@ class RemoteControlWindowController: NSWindowController, NSWindowDelegate {
             guard let self else { return event }
             let flags = event.modifierFlags
             
-            // Nav + media shortcuts for mobile (non-lock mode only)
+            // Nav shortcuts for mobile (non-lock mode only)
             if !self.service.isCapturing, let device = self.currentDevice {
                 let isMobile = device.type == .Phone || device.type == .Tablet
                 if isMobile {
@@ -172,9 +172,6 @@ class RemoteControlWindowController: NSWindowController, NSWindowDelegate {
                     case (33, true, false): self.service.sendBack(to: device);        return nil  // Cmd+[
                     case ( 4, true,  true): self.service.sendHome(to: device);        return nil  // Cmd+Shift+H
                     case (15, true,  true): self.service.sendRecents(to: device);     return nil  // Cmd+Shift+R
-                    case (126, true,  true): self.service.sendVolumeUp(to: device);   return nil  // Cmd+Shift+↑
-                    case (125, true,  true): self.service.sendVolumeDown(to: device); return nil  // Cmd+Shift+↓
-                    case (37,  true,  true): self.service.sendPower(to: device);      return nil  // Cmd+Shift+L
                     default: break
                     }
                 }

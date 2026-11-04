@@ -18,8 +18,7 @@ import os
 /// take the authoritative identity from the post-TLS exchange and discover us
 /// primarily via mDNS. So the broadcast advertises an allowlisted subset of
 /// capabilities (the features a v7 peer can actually use in a broadcast-discovered
-/// session), and omits the identity extension fields, which no v7 client parses.
-/// Everything else reaches peers through the directed unicast announcements,
+/// session). Everything else reaches peers through the directed unicast announcements,
 /// the mDNS-triggered exchange, and the TCP identity packets, all of which
 /// carry the full identity.
 enum BroadcastIdentity {
@@ -60,15 +59,14 @@ enum BroadcastIdentity {
         "kdeconnect.telephony.request_mute"
     ]
     
-    /// Builds the identity packet for the subnet broadcast: capabilities filtered through the allowlist, extension fields omitted.
+    /// Builds the identity packet for the subnet broadcast: capabilities filtered through the allowlist.
     /// Falls back to a capability-less form (with an error log) if the result would exceed the MTU budget (degradation is never silent).
     static func packet(additionalProperties: DataPacket.Body?, config: HostConfiguration) -> DataPacket {
         let packet = DataPacket.identityPacket(
             additionalProperties: additionalProperties,
             config: config,
             incomingCapabilities: Array(config.incomingCapabilities.intersection(allowedCapabilities)),
-            outgoingCapabilities: Array(config.outgoingCapabilities.intersection(allowedCapabilities)),
-            includeExtensionFields: false
+            outgoingCapabilities: Array(config.outgoingCapabilities.intersection(allowedCapabilities))
         )
         
         guard let size = (try? packet.serialize())?.count else { return packet }
@@ -81,8 +79,7 @@ enum BroadcastIdentity {
             additionalProperties: additionalProperties,
             config: config,
             incomingCapabilities: [],
-            outgoingCapabilities: [],
-            includeExtensionFields: false
+            outgoingCapabilities: []
         )
     }
 }

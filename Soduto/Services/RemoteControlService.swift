@@ -354,29 +354,6 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     func sendHome(to device: Device)    { sendMiddleClick(to: device); flash(.home) }
     func sendRecents(to device: Device) { sendDoubleClick(to: device); flash(.recents) }
     
-    // Discrete long press (longclick field): opens Android contextual menu. Soduto exclusive implementation, so other clients ignore it.
-    func sendLongTap(to device: Device) {
-        device.send(DataPacket(type: DataPacket.mousePadRequestPacketType, body: [
-            "longclick": true as NSNumber
-        ]))
-    }
-    
-    // Extended navigation: action field (power, volume) handled by Soduto (Android) only.
-    func sendPower(to device: Device) {
-        device.send(DataPacket(type: DataPacket.mousePadRequestPacketType, body: ["action": "power" as NSString]))
-        flash(.power)
-    }
-    
-    func sendVolumeUp(to device: Device) {
-        device.send(DataPacket(type: DataPacket.mousePadRequestPacketType, body: ["action": "volume_up" as NSString]))
-        flash(.volumeUp)
-    }
-    
-    func sendVolumeDown(to device: Device) {
-        device.send(DataPacket(type: DataPacket.mousePadRequestPacketType, body: ["action": "volume_down" as NSString]))
-        flash(.volumeDown)
-    }
-    
     private func flash(_ h: RemoteControlNavHighlight) {
         DispatchQueue.main.async { [weak self] in
             self?.navHighlight = h
@@ -386,13 +363,10 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         }
     }
     
-    var isAndroidCompanion: Bool { targetDevice?.isAndroidCompanion ?? false }
-    
-    /// True when the peer is standard Android KDE Connect (not Soduto Android).
+    /// True when the peer is (inferred to be) KDE Connect Android, i.e. a phone or tablet.
     /// Used in the CGEvent tap to decide between spoon-feeding vs raw passthrough.
     var isVanillaAndroid: Bool {
-        let isMobile = targetDevice?.type == .Phone || targetDevice?.type == .Tablet
-        return isMobile && !isAndroidCompanion
+        targetDevice?.type == .Phone || targetDevice?.type == .Tablet
     }
     
     // Touch drag swipe: press → move → release, then restore pointer to avoid drift.
@@ -559,9 +533,6 @@ public class RemoteControlService: OutgoingService, ObservableObject {
                     case (33, false): DispatchQueue.main.async { service.sendBack(to: device) };       return nil  // Cmd+[       → Back
                     case ( 4,  true): DispatchQueue.main.async { service.sendHome(to: device) };       return nil  // Cmd+Shift+H → Home
                     case (15,  true): DispatchQueue.main.async { service.sendRecents(to: device) };    return nil  // Cmd+Shift+R → Recents
-                    case (126, true): DispatchQueue.main.async { service.sendVolumeUp(to: device) };   return nil  // Cmd+Shift+↑ → Vol+
-                    case (125, true): DispatchQueue.main.async { service.sendVolumeDown(to: device) }; return nil  // Cmd+Shift+↓ → Vol−
-                    case (37,  true): DispatchQueue.main.async { service.sendPower(to: device) };      return nil  // Cmd+Shift+L → Power
                     default: break
                     }
                 }
@@ -614,7 +585,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
 // MARK: Nav highlight type
 
 public enum RemoteControlNavHighlight: Equatable {
-    case back, home, recents, volumeUp, volumeDown, power
+    case back, home, recents
 }
 
 

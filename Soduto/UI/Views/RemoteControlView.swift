@@ -26,17 +26,15 @@ struct RemoteControlView: View {
     
     private var isMobile: Bool { device.type == .Phone || device.type == .Tablet }
     
-    // True when the peer is Android but NOT Soduto — standard KDE Connect Android.
-    // These clients ignore shift/alt/ctrl modifier flags and just insert the raw key value,
-    // so macOS must pre-apply modifiers (spoon-feed) for them.
+    // True when the peer is (inferred to be) KDE Connect Android.
+    // KDE Connect Android ignores shift/alt/ctrl modifier flags and just inserts the raw key value,
+    // so macOS must pre-apply modifiers (spoon-feed) for it.
     private var isVanillaAndroid: Bool {
-        inferredPlatform == "Android" && !device.isAndroidCompanion
+        inferredPlatform == "Android"
     }
     
-    // Best-effort OS name: exact from Soduto identity extension, inferred from device type otherwise.
-    // Standard KDE Connect clients don't send platformName, so we fall back to reasonable guesses.
+    // Best-effort OS name inferred from the device type (KDE Connect identity carries no platform name).
     private var inferredPlatform: String {
-        if let p = device.platformName, !p.isEmpty { return p }
         switch device.type {
         case .Phone, .Tablet: return "Android"   // overwhelmingly the common case
         case .TV:             return "Android"   // Android TV
@@ -227,14 +225,6 @@ struct RemoteControlView: View {
                     navButton("chevron.backward", isHighlit: service.navHighlight == .back)    { service.sendBack(to: device) }
                     navButton("house.fill",       isHighlit: service.navHighlight == .home)    { service.sendHome(to: device) }
                     navButton("rectangle.stack.fill",     isHighlit: service.navHighlight == .recents) { service.sendRecents(to: device) }
-                    
-                    // Volume + power: Soduto-specific extensions (other clients ignore them)
-                    if device.isAndroidCompanion {
-                        Divider().padding(.horizontal, 8).padding(.vertical, 2)
-                        navButton("speaker.plus.fill", isHighlit: service.navHighlight == .volumeUp)   { service.sendVolumeUp(to: device) }
-                        navButton("speaker.minus.fill", isHighlit: service.navHighlight == .volumeDown) { service.sendVolumeDown(to: device) }
-                        navButton("powersleep",        isHighlit: service.navHighlight == .power)      { service.sendPower(to: device) }
-                    }
                     Spacer(minLength: 4)
                 } else if !keyboardAvailable {
                     Spacer(minLength: 4)
@@ -284,11 +274,10 @@ struct RemoteControlView: View {
         .animation(.easeOut(duration: 0.1), value: state == .off)
     }
     
-    // Dual icon (Windows + Meta) only when peer OS is genuinely unknown and device is desktop/laptop.
-    // Known platforms show their exact icon; mobile/TV infers Android → Meta only.
+    // Dual icon (Windows + Meta) for desktop/laptop peers, whose OS can't be told from the identity.
+    // Mobile/TV infers Android → Meta only.
     private var superKeyIsDual: Bool {
-        guard device.platformName == nil || device.platformName!.isEmpty else { return false }
-        return device.type == .Desktop || device.type == .Laptop || device.type == .Unknown
+        device.type == .Desktop || device.type == .Laptop || device.type == .Unknown
     }
     
     private var osModifierButton: some View {
@@ -419,15 +408,10 @@ struct RemoteControlView: View {
                         helpRow("⌘ + [",          "Back")
                         helpRow("⌘⇧ + H",         "Home")
                         helpRow("⌘⇧ + R",         "Recents")
-                        helpRow("⌘⇧ + ↑",         "Volume up")
-                        helpRow("⌘⇧ + ↓",         "Volume down")
-                        helpRow("⌘⇧ + L",         "Power button")
                     }
                     
                     helpSection("Notes") {
-                        helpRow("Power",        "Locks the screen. Wake tip: press Home, it triggers screen-on as a side effect!")
                         helpRow("Home/Recents", "Require MouseReceiver accessibility service on Android")
-                        helpRow("Vol+/Vol−",    "Adjusts media (music) volume")
                     }
                 }
             }
@@ -487,14 +471,6 @@ struct RemoteControlView: View {
             // Tap = singleclick
             clickButton("Tap", systemImage: "hand.rays.fill", isHighlit: clickHighlight == .left) {
                 service.sendSingleClick(to: device)
-            }
-            
-            // Long Tap = discrete long press → uses Soduto-specific `longclick` field,
-            // only show when connected to Soduto Android (other clients silently ignore it)
-            if device.isAndroidCompanion {
-                clickButton("Long Tap", systemImage: "hand.tap.fill", isHighlit: false) {
-                    service.sendLongTap(to: device)
-                }
             }
             
             // Hold = toggle singlehold / singlerelease for drag operations
@@ -932,7 +908,7 @@ final class TrackpadNSView: NSView {
         if let specialKey = kdeSpecialKey(for: keyCode) {
             onKeyDown?(nil, specialKey, shift, ctrl, alt, command)
         } else {
-            // Vanilla Android Client: spoon-feed event.characters. Other targets: base key + modifiers.
+            // KDE Connect Android: spoon-feed event.characters. Other targets: base key + modifiers.
             let key: String
             if isVanillaAndroid {
                 key = event.characters ?? ""
