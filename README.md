@@ -19,7 +19,7 @@
 - [Roadmap](#roadmap)
   - [Protocol Coverage](#protocol-coverage)
   - [Quality of Life](#quality-of-life)
-  - [Beyond the Protocol](#beyond-the-protocol)
+  - [Not on this branch](#not-on-this-branch)
 - [Building](#building)
 - [Debugging](#debugging)
 - [Verifying Downloads](#verifying-downloads)
@@ -59,7 +59,7 @@ Please note that currently there's no brew cask for Soduto builds of this reposi
 
 ### Protocol Coverage
 
-Soduto implements the following KDE Connect plugin features (compatible with any KDE Connect device):
+Soduto implements the following KDE Connect plugin features (compatible with any KDE Connect device; this branch targets stock KDE Connect Android, see [Not on this branch](#not-on-this-branch)):
 
 #### Notifications
 - [x] Receive: Mirror remote device notifications on macOS
@@ -81,9 +81,9 @@ Soduto implements the following KDE Connect plugin features (compatible with any
 #### Media Control (MPRIS)
 - [x] Receive: Control remote device music/video playback from Dashboard or macOS Now Playing Module
 - [x] Send: Control macOS music/video playback from remote devices (experimental due to Apple's Private API)
+- [x] Sync Media Playback: Status bar toggle to turn media sync off in both directions (e.g. when headphones paired to both devices keep pausing playback)
 
 #### System Volume
-- [x] Receive: View and Control audio streams on remote device from Mac
 - [x] Send: View and Control audio streams on Mac from remote device
 
 #### Telephony
@@ -102,16 +102,12 @@ Soduto implements the following KDE Connect plugin features (compatible with any
 - [x] Send: Send ping messages to remote devices
 
 #### Run Commands
-- [x] Receive: Execute macOS commands from remote devices
+- [x] Receive: Execute macOS commands from remote devices, with live command output on the remote device, "add command" (opens the Mac command editor) and stop support
 - [x] Send: Execute predefined commands on remote devices
 
 #### Find My Device
 - [x] Receive: Make macOS play an alarm sound to locate it
 - [x] Send: Make remote device play an alarm sound to locate it
-
-#### Lock
-- [x] Receive: View remote device lock status, and lock/unlock this Mac remotely (unlock won't succeed if the remote device is Android or macOS, since neither OS exposes an unlock API)
-- [x] Send: Report macOS lock status to remote devices, and lock/unlock the remote device (same unlock caveat applies)
 
 #### Connectivity Report
 - [x] Receive: Monitor remote device network connectivity status
@@ -138,9 +134,16 @@ Soduto implements the following KDE Connect plugin features (compatible with any
 - [ ] Native Menubar Widgets: Desktop widgets for at-a-glance device status
 - [ ] Shake to Send: Copy a file (or share it via the Share Extension or menu bar drag) on the Mac, then shake the target phone within a few seconds to send it there instantly, an alternative to picking a device from a list
 
-### Beyond the Protocol (both devices require Soduto sibling clients)
+### Not on this branch
 
-- [x] Webcam (experimental): Stream live video from a remote device's camera to macOS and use it as webcam
+This branch is meant to be fully testable against the stock KDE Connect Android app. Features that only work with the [soduto-android](https://github.com/sannidhyaroy/soduto-android) fork, or that stock KDE Connect Android does not implement, were removed in separate commits so each can be restored with `git revert`. The original implementations live on `sannidhyaroy/Soduto` branch `feat/refine-services`.
+
+- Webcam (`kdeconnect.webcam.*`, soduto-android only)
+- Lock (`kdeconnect.lock`, no stock Android plugin), including `canLock`/`canUnlock`
+- System Volume receive (controlling the phone's audio streams; needs the soduto-android SystemVolumeProvider)
+- Identity extension fields (`clientName`, `clientVersion`, `platformName`, `platformVersion`)
+- Mousepad `longclick` and `action` (power / volume) and the raw-key + shift keyboard mode for Soduto Android
+- SMS conversation-list pagination (`numberToRequest` / `rangeStartTimestamp` on `request_conversations`, `hasMore`)
 
 ---
 ## Building
