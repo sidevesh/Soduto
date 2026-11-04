@@ -115,8 +115,7 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
                 mediaPlayerService: serviceManager.service(ofType: MediaPlayerService.self),
                 systemVolumeService: serviceManager.service(ofType: SystemVolumeService.self),
                 batteryService: serviceManager.service(ofType: BatteryService.self),
-                connectivityReportService: serviceManager.service(ofType: ConnectivityReportService.self),
-                lockService: serviceManager.service(ofType: LockService.self)
+                connectivityReportService: serviceManager.service(ofType: ConnectivityReportService.self)
             )
             controller.onClose = { [weak self] in self?.dashboardWindowController = nil }
             dashboardWindowController = controller

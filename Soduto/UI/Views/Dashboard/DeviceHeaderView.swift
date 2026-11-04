@@ -49,13 +49,6 @@ struct DeviceHeaderView: View {
                             .aspectRatio(contentMode: .fit)
                             .frame(height: 13)
                     }
-                    
-                    // Lock badge — only shown when device is locked
-                    if device.isLocked == true {
-                        Label("Locked", systemImage: "lock.fill")
-                            .font(.caption)
-                            .foregroundStyle(Color.secondary)
-                    }
                 }
             }
             

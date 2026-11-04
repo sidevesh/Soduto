@@ -124,10 +124,6 @@ enum AppDefaultsStore {
                 static let base = "\(Services.base).findmy"
             }
             
-            enum Lock: ServiceToggle {
-                static let base = "\(Services.base).lock"
-            }
-            
             enum MousePad: ServiceIncomingToggle {
                 static let base = "\(Services.base).mousepad"
             }
