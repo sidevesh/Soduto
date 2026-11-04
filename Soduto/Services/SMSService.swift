@@ -19,10 +19,10 @@ import os
 /// that needs context, etc.). Heavy SMS users have tens of thousands of unique threads;
 /// flooding the channel on every reconnect would block ping/clipboard/battery packets.
 ///
-/// The conversation list itself paginates using a Soduto protocol extension on
-/// `kdeconnect.sms.request_conversations`: optional `numberToRequest`
-/// + `rangeStartTimestamp` fields, honoured by the Soduto Android client and
-/// ignored by stock KDE Connect Android (falls back to the original unbounded behaviour).
+/// The conversation list is fetched with a single `kdeconnect.sms.request_conversations`
+/// (KDE Connect Android answers with the latest message of every thread); message history
+/// inside a thread pages with the standard `rangeStartTimestamp` + `numberToRequest` fields
+/// of `kdeconnect.sms.request_conversation`.
 public class SMSService: NSObject, IncomingService, ObservableObject, DownloadTaskDelegate {
     
     // MARK: Init
@@ -229,7 +229,6 @@ public class SMSService: NSObject, IncomingService, ObservableObject, DownloadTa
         var inFlight: Bool = false
         var hasReachedEnd: Bool = false
         var lastResponseMessageCount: Int = 0
-        var lastRequestedPageSize: Int = 0
         var settleWorkItem: DispatchWorkItem?
     }
     private var listPagination: [Device.Id: ListPaginationState] = [:] {
@@ -356,47 +355,29 @@ public class SMSService: NSObject, IncomingService, ObservableObject, DownloadTa
     
     // MARK: Public API
     
-    /// Initial conversation-list fetch. Pages `numberToRequest` newest threads from the phone.
+    /// Initial conversation-list fetch. The phone returns the latest message of every thread in one go.
     /// Safe to call multiple times, duplicate calls are coalesced into the in-flight request.
-    public func bootstrapConversations(for device: Device, pageSize: Int = 20) {
+    public func bootstrapConversations(for device: Device) {
         ensureDevice(device)
         var state = listPagination[device.id] ?? ListPaginationState()
         guard !state.inFlight, !state.hasReachedEnd else { return }
         guard (conversations[device.id]?.isEmpty ?? true) else {
-            // Already have data from a previous run, let `loadMore` drive further paging
+            // Already have data from a previous run; the list request returns every thread
             return
         }
         state.inFlight = true
         state.lastResponseMessageCount = 0
-        state.lastRequestedPageSize = pageSize
         listPagination[device.id] = state
-        Logger.services.info("SMSService bootstrapping conversation list for \(device.id, privacy: .public) (pageSize=\(pageSize, privacy: .public))")
-        request(DataPacket.smsRequestConversationsPacket(numberToRequest: pageSize), from: device)
+        Logger.services.info("SMSService bootstrapping conversation list for \(device.id, privacy: .public)")
+        request(DataPacket.smsRequestConversationsPacket(), from: device)
     }
     
-    /// Fetch the next page of older conversations.
-    /// `rangeStartTimestamp` is derived from the oldest thread already loaded.
-    public func loadMoreConversations(for device: Device, pageSize: Int = 20) {
+    /// Called by the conversation list's load-more sentinel.
+    /// `request_conversations` already returns every thread, so this only (re)bootstraps when nothing is loaded yet.
+    public func loadMoreConversations(for device: Device) {
         ensureDevice(device)
-        var state = listPagination[device.id] ?? ListPaginationState()
-        guard !state.inFlight, !state.hasReachedEnd else { return }
-        guard let oldestDate = oldestConversationDate(deviceId: device.id) else {
-            bootstrapConversations(for: device, pageSize: pageSize)
-            return
-        }
-        state.inFlight = true
-        state.lastResponseMessageCount = 0
-        state.lastRequestedPageSize = pageSize
-        listPagination[device.id] = state
-        // -1 ms to guarantee strictly-older semantics regardless of whether the phone interprets `rangeStartTimestamp` as `<` or `<=`
-        // Without this, a `<=` phone re-sends the boundary thread; the duplicate inflates `lastResponseMessageCount` past `pageSize` and trips the flood-detection branch in `scheduleListSettle`, wrongly setting `hasReachedEnd = true` after the second batch
-        // Matches the thread pagination convention in `requestMore(threadId:device:pageSize:)`
-        let oldestMs = Int64(oldestDate.timeIntervalSince1970 * 1000) - 1
-        Logger.services.debug("SMSService loadMore for \(device.id, privacy: .public) rangeStartTs=\(oldestMs, privacy: .public)")
-        request(DataPacket.smsRequestConversationsPacket(
-            numberToRequest: pageSize,
-            rangeStartTimestamp: oldestMs
-        ), from: device)
+        guard oldestConversationDate(deviceId: device.id) == nil else { return }
+        bootstrapConversations(for: device)
     }
     
     /// Fetch a page of older messages within an open thread.
@@ -689,48 +670,10 @@ public class SMSService: NSObject, IncomingService, ObservableObject, DownloadTa
             }
         }
         
-        // Authoritative end signal from Soduto Android Client
-        // When `hasMore` is explicitly false we close out the in-flight pagination right away instead of waiting for the settle timer or relying on the count heuristic
-        // When the field is absent (stock KDE Connect Android) `hasMore` is nil and we fall back to the timer
-        let hasMore: Bool? = (packet.body["hasMore"] as? NSNumber)?.boolValue ?? (packet.body["hasMore"] as? Bool)
-        
         if isMultiMessage || isFromInFlightThread {
             scheduleThreadSettle(deviceId: device.id, threadId: firstThread, batchCount: parsed.count)
-            if hasMore == false {
-                finalizeThreadEnd(deviceId: device.id, threadId: firstThread)
-            }
         } else if isListResponse {
             scheduleListSettle(deviceId: device.id, batchCount: parsed.count)
-            if hasMore == false {
-                finalizeListEnd(deviceId: device.id)
-            }
-        }
-    }
-    
-    /// Immediately flip `hasReachedEnd = true` and clear in-flight + the settle timer when the phone tells us a list page is the last one.
-    private func finalizeListEnd(deviceId: Device.Id) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self, var s = self.listPagination[deviceId] else { return }
-            s.settleWorkItem?.cancel()
-            s.settleWorkItem = nil
-            s.inFlight = false
-            s.hasReachedEnd = true
-            self.listPagination[deviceId] = s
-            Logger.services.debug("SMSService list end for \(deviceId, privacy: .public) (hasMore=false)")
-        }
-    }
-    
-    /// Immediately flip `hasReachedStart = true` and clear in-flight + the settle timer when the phone tells us a thread page is the last (oldest) one.
-    private func finalizeThreadEnd(deviceId: Device.Id, threadId: Int64) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self,
-                  var s = self.threadPagination[deviceId]?[threadId] else { return }
-            s.settleWorkItem?.cancel()
-            s.settleWorkItem = nil
-            s.inFlight = false
-            s.hasReachedStart = true
-            self.threadPagination[deviceId, default: [:]][threadId] = s
-            Logger.services.debug("SMSService thread \(threadId, privacy: .public) end (hasMore=false)")
         }
     }
     
@@ -824,8 +767,8 @@ public class SMSService: NSObject, IncomingService, ObservableObject, DownloadTa
     
     // MARK: Pagination settle detection
     
-    /// After the last incoming message for a list-pagination batch, wait a short window for further packets.
-    /// If nothing more arrives, declare the page complete and clear the in-flight flag so `loadMore()` can fire again.
+    /// After the last incoming message for the conversation-list request, wait a short window for further packets.
+    /// If nothing more arrives, the list is complete (the phone sends every thread in response to one request).
     private func scheduleListSettle(deviceId: Device.Id, batchCount: Int) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -836,17 +779,7 @@ public class SMSService: NSObject, IncomingService, ObservableObject, DownloadTa
                 guard let self = self else { return }
                 var s = self.listPagination[deviceId] ?? ListPaginationState()
                 s.inFlight = false
-                if s.lastResponseMessageCount == 0 {
-                    s.hasReachedEnd = true
-                } else if s.lastRequestedPageSize > 0 && s.lastResponseMessageCount > s.lastRequestedPageSize {
-                    // Phone returned more than we asked for (e.g. stock KDE Connect Android ignored our pagination params and flooded the full conversation list)
-                    // We have everything; suppress further `loadMore()` to avoid re-flooding
-                    s.hasReachedEnd = true
-                    Logger.services.notice("SMSService list flood detected for \(deviceId, privacy: .public) (\(s.lastResponseMessageCount, privacy: .public) > \(s.lastRequestedPageSize, privacy: .public)); marking complete")
-                } else if s.lastRequestedPageSize > 0 && s.lastResponseMessageCount < s.lastRequestedPageSize {
-                    // Phone returned a partial page, there's nothing older left
-                    s.hasReachedEnd = true
-                }
+                s.hasReachedEnd = true
                 s.settleWorkItem = nil
                 self.listPagination[deviceId] = s
                 Logger.services.debug("SMSService list page settled for \(deviceId, privacy: .public): \(s.lastResponseMessageCount, privacy: .public) msgs, end=\(s.hasReachedEnd, privacy: .public)")
@@ -1021,17 +954,8 @@ fileprivate extension DataPacket {
     }
     
     /// Request the most-recent message in each thread.
-    /// Soduto extension: optional pagination via `numberToRequest` + `rangeStartTimestamp`.
-    /// Stock KDE Connect Android ignores the params and returns every thread (original behaviour).
-    static func smsRequestConversationsPacket(numberToRequest: Int? = nil, rangeStartTimestamp: Int64? = nil) -> DataPacket {
-        var body: [String: AnyObject] = [:]
-        if let n = numberToRequest {
-            body[SMSProperty.numberToRequest.rawValue] = NSNumber(value: n)
-        }
-        if let ts = rangeStartTimestamp {
-            body[SMSProperty.rangeStartTimestamp.rawValue] = NSNumber(value: ts)
-        }
-        return DataPacket(type: smsRequestConversationsPacketType, body: body)
+    static func smsRequestConversationsPacket() -> DataPacket {
+        return DataPacket(type: smsRequestConversationsPacketType, body: [:])
     }
     
     /// Request messages from a specific thread.
