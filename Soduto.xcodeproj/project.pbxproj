@@ -51,7 +51,6 @@
 		31332A2F2F6CCD8C0085A93A /* DeviceHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31332A2E2F6CCD8C0085A93A /* DeviceHeaderView.swift */; };
 		31332A312F6CCE080085A93A /* MediaPlayerSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31332A302F6CCE080085A93A /* MediaPlayerSectionView.swift */; };
 		31332A332F6CCE190085A93A /* PlayerRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31332A322F6CCE190085A93A /* PlayerRowView.swift */; };
-		31332A352F6CCE320085A93A /* SystemVolumeSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31332A342F6CCE320085A93A /* SystemVolumeSectionView.swift */; };
 		31332A382F6CCE690085A93A /* DeviceDashboardModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31332A372F6CCE690085A93A /* DeviceDashboardModel.swift */; };
 		313416CA2F381D44007E7640 /* X509 in Frameworks */ = {isa = PBXBuildFile; productRef = 313416C92F381D44007E7640 /* X509 */; };
 		313416CD2F3856C0007E7640 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = 313416CC2F3856C0007E7640 /* Citadel */; };
@@ -70,7 +69,6 @@
 		31711BA82F17435000E3B9FE /* MediaPlayerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31711BA72F17435000E3B9FE /* MediaPlayerService.swift */; };
 		31711BAC2F17638000E3B9FE /* ImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31711BAB2F17638000E3B9FE /* ImageLoader.swift */; };
 		317C4DF62F8A88AD00067638 /* SystemMediaController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317C4DF52F8A88AD00067638 /* SystemMediaController.swift */; };
-		317F28E32F6E34E40084B108 /* SinkRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F28E22F6E34E40084B108 /* SinkRowView.swift */; };
 		317F93052FABDBDE00CDC0EC /* RemoteControlWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F93042FABDBDE00CDC0EC /* RemoteControlWindowController.swift */; };
 		317F93072FABDC0D00CDC0EC /* RemoteControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F93062FABDC0D00CDC0EC /* RemoteControlView.swift */; };
 		317F93092FAD451300CDC0EC /* KeyboardUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F93082FAD451300CDC0EC /* KeyboardUtils.swift */; };
@@ -325,7 +323,6 @@
 		31332A2E2F6CCD8C0085A93A /* DeviceHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceHeaderView.swift; sourceTree = "<group>"; };
 		31332A302F6CCE080085A93A /* MediaPlayerSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPlayerSectionView.swift; sourceTree = "<group>"; };
 		31332A322F6CCE190085A93A /* PlayerRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerRowView.swift; sourceTree = "<group>"; };
-		31332A342F6CCE320085A93A /* SystemVolumeSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemVolumeSectionView.swift; sourceTree = "<group>"; };
 		31332A372F6CCE690085A93A /* DeviceDashboardModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceDashboardModel.swift; sourceTree = "<group>"; };
 		31366D352F412C4A0013911D /* PacketCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketCodec.swift; sourceTree = "<group>"; };
 		31366D372F412C6F0013911D /* STARTTLSHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STARTTLSHandler.swift; sourceTree = "<group>"; };
@@ -338,7 +335,6 @@
 		31711BA72F17435000E3B9FE /* MediaPlayerService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MediaPlayerService.swift; sourceTree = "<group>"; };
 		31711BAB2F17638000E3B9FE /* ImageLoader.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ImageLoader.swift; sourceTree = "<group>"; };
 		317C4DF52F8A88AD00067638 /* SystemMediaController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemMediaController.swift; sourceTree = "<group>"; };
-		317F28E22F6E34E40084B108 /* SinkRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SinkRowView.swift; sourceTree = "<group>"; };
 		317F93042FABDBDE00CDC0EC /* RemoteControlWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlWindowController.swift; sourceTree = "<group>"; };
 		317F93062FABDC0D00CDC0EC /* RemoteControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlView.swift; sourceTree = "<group>"; };
 		317F93082FAD451300CDC0EC /* KeyboardUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardUtils.swift; sourceTree = "<group>"; };
@@ -581,8 +577,6 @@
 				31E059DE2F7086EA0019F4FE /* MarqueeText.swift */,
 				31332A302F6CCE080085A93A /* MediaPlayerSectionView.swift */,
 				31332A322F6CCE190085A93A /* PlayerRowView.swift */,
-				317F28E22F6E34E40084B108 /* SinkRowView.swift */,
-				31332A342F6CCE320085A93A /* SystemVolumeSectionView.swift */,
 				31E059DC2F7044540019F4FE /* WaveSeekBar.swift */,
 				31E059E02F70B4DD0019F4FE /* VolumeBar.swift */,
 			);
@@ -1277,7 +1271,6 @@
 				84FA45DA1DDDCB3D00EF3992 /* Device.swift in Sources */,
 				84651A721E599A3C00D17601 /* BatteryService.swift in Sources */,
 				849237EC1DE5FC9600D95BBA /* PairingInterfaceController.swift in Sources */,
-				317F28E32F6E34E40084B108 /* SinkRowView.swift in Sources */,
 				3116837C2FB92CEC00B1AEF8 /* SMSWindowController.swift in Sources */,
 				849961C31D57287F002B893A /* Test.m in Sources */,
 				849961C11D57287F002B893A /* CollectionUtils.m in Sources */,
@@ -1319,7 +1312,6 @@
 				0225F6111F06E2380021BFE2 /* NSAttributedString.swift in Sources */,
 				31F8A6122F4EECB800CA5A61 /* MDNSBrowseService.swift in Sources */,
 				843B670C1DF3087800289EC9 /* URL.swift in Sources */,
-				31332A352F6CCE320085A93A /* SystemVolumeSectionView.swift in Sources */,
 				8492379D1DE1C55900D95BBA /* DeviceMenu.swift in Sources */,
 				0223974F1F0908FB00B0C70A /* TextFieldWithLinks.swift in Sources */,
 				310154833008CF89002E4BB2 /* BroadcastIdentity.swift in Sources */,

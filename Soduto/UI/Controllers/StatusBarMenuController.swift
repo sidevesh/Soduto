@@ -113,7 +113,6 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
             let controller = DeviceDashboardWindowController(
                 deviceDataSource: deviceDataSource,
                 mediaPlayerService: serviceManager.service(ofType: MediaPlayerService.self),
-                systemVolumeService: serviceManager.service(ofType: SystemVolumeService.self),
                 batteryService: serviceManager.service(ofType: BatteryService.self),
                 connectivityReportService: serviceManager.service(ofType: ConnectivityReportService.self)
             )

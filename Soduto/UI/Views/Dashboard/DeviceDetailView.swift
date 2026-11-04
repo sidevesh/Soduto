@@ -25,11 +25,6 @@ struct DeviceDetailView: View {
                     .padding(.horizontal, 20)
                 
                 MediaPlayerSectionView(device: device, model: model)
-                
-                Divider()
-                    .padding(.horizontal, 20)
-                
-                SystemVolumeSectionView(device: device, model: model)
             }
         }
         .id(device.id)

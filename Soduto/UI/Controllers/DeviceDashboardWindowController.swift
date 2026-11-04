@@ -18,13 +18,11 @@ final class DeviceDashboardWindowController: NSWindowController, NSWindowDelegat
     
     init(deviceDataSource: DeviceDataSource,
          mediaPlayerService: MediaPlayerService?,
-         systemVolumeService: SystemVolumeService?,
          batteryService: BatteryService?,
          connectivityReportService: ConnectivityReportService?) {
         let model = DeviceDashboardModel(
             deviceDataSource: deviceDataSource,
             mediaPlayerService: mediaPlayerService,
-            systemVolumeService: systemVolumeService,
             batteryService: batteryService,
             connectivityReportService: connectivityReportService
         )

@@ -145,7 +145,7 @@ enum AppDefaultsStore {
                 static let base = "\(Services.base).sms"
             }
             
-            enum SystemVolume: ServiceToggle {
+            enum SystemVolume: ServiceOutgoingToggle {
                 static let base = "\(Services.base).systemvolume"
             }
         }

@@ -18,8 +18,6 @@ struct DashboardDevice: Identifiable {
     var lastSeenDate: Date?
     /// Remote players; frozen at last-known state when unreachable
     var players: [PlayerRemote]
-    /// Audio sinks; frozen at last-known state when unreachable
-    var sinks: [String: SystemVolumeService.AudioSink]
     /// Battery status: used as an invalidation key so SwiftUI re-renders when it changes
     /// Views use `batteryService.statusBarImage()` for the actual rendered image
     var batteryStatus: BatteryService.BatteryStatus?
@@ -30,8 +28,8 @@ struct DashboardDevice: Identifiable {
 
 /// Central observable model for the Device Dashboard.
 ///
-/// Aggregates state from `DeviceDataSource`, `MediaPlayerService`, `SystemVolumeService`,
-/// and `BatteryService` into a unified list of `DashboardDevice` values. Views observe
+/// Aggregates state from `DeviceDataSource`, `MediaPlayerService`, `BatteryService`,
+/// and `ConnectivityReportService` into a unified list of `DashboardDevice` values. Views observe
 /// this model and call its command methods, they never touch services directly.
 @MainActor
 final class DeviceDashboardModel: ObservableObject {
@@ -41,7 +39,6 @@ final class DeviceDashboardModel: ObservableObject {
     
     private let deviceDataSource: DeviceDataSource
     let mediaPlayerService: MediaPlayerService?
-    let systemVolumeService: SystemVolumeService?
     let batteryService: BatteryService?
     let connectivityReportService: ConnectivityReportService?
     
@@ -50,17 +47,13 @@ final class DeviceDashboardModel: ObservableObject {
     private var lastSeenDates: [Device.Id: Date] = [:]
     /// Last-known players before service cleared them on disconnect.
     private var cachedPlayers: [Device.Id: [PlayerRemote]] = [:]
-    /// Last-known sinks before service cleared them on disconnect.
-    private var cachedSinks: [Device.Id: [String: SystemVolumeService.AudioSink]] = [:]
     
     init(deviceDataSource: DeviceDataSource,
          mediaPlayerService: MediaPlayerService?,
-         systemVolumeService: SystemVolumeService?,
          batteryService: BatteryService?,
          connectivityReportService: ConnectivityReportService?) {
         self.deviceDataSource = deviceDataSource
         self.mediaPlayerService = mediaPlayerService
-        self.systemVolumeService = systemVolumeService
         self.batteryService = batteryService
         self.connectivityReportService = connectivityReportService
         
@@ -69,7 +62,6 @@ final class DeviceDashboardModel: ObservableObject {
         // rebuildDevices() call instead of hammering the SwiftUI view tree.
         let serviceChanges: [AnyPublisher<Void, Never>] = [
             mediaPlayerService?.$players.dropFirst().map { _ in () }.eraseToAnyPublisher(),
-            systemVolumeService?.$remoteSinks.dropFirst().map { _ in () }.eraseToAnyPublisher(),
             batteryService?.$statuses.dropFirst().map { _ in () }.eraseToAnyPublisher(),
             connectivityReportService?.$statuses.dropFirst().map { _ in () }.eraseToAnyPublisher()
         ].compactMap { $0 }
@@ -80,7 +72,7 @@ final class DeviceDashboardModel: ObservableObject {
             .store(in: &cancellables)
         
         // Use .scan to observe (previous, new) pairs so we can capture last-known
-        // player/sink state at the exact moment the service clears it on disconnect.
+        // player state at the exact moment the service clears it on disconnect.
         // This fires synchronously on the main thread when @Published changes.
         mediaPlayerService?.$players
             .scan(([Device.Id: [PlayerRemote]](), [Device.Id: [PlayerRemote]]())) { ($0.1, $1) }
@@ -89,19 +81,6 @@ final class DeviceDashboardModel: ObservableObject {
                 for id in old.keys where new[id] == nil || new[id]!.isEmpty {
                     if let players = old[id], !players.isEmpty {
                         self.cachedPlayers[id] = players
-                    }
-                }
-            }
-            .store(in: &cancellables)
-        
-        systemVolumeService?.$remoteSinks
-            .scan(([Device.Id: [String: SystemVolumeService.AudioSink]](),
-                   [Device.Id: [String: SystemVolumeService.AudioSink]]())) { ($0.1, $1) }
-            .sink { [weak self] old, new in
-                guard let self else { return }
-                for id in old.keys where new[id] == nil || new[id]!.isEmpty {
-                    if let sinks = old[id], !sinks.isEmpty {
-                        self.cachedSinks[id] = sinks
                     }
                 }
             }
@@ -153,12 +132,6 @@ final class DeviceDashboardModel: ObservableObject {
         mediaPlayerService?.controlSetShuffle(for: player, shuffle: shuffle)
     }
     
-    // MARK: - System Volume Commands
-    
-    func setSinkVolume(_ volume: Int, sink: SystemVolumeService.AudioSink, device: Device) {
-        systemVolumeService?.setRemoteSinkVolume(volume, sinkName: sink.name, onDevice: device)
-    }
-    
     // MARK: - Private
     
     private func rebuildDevices() {
@@ -191,16 +164,12 @@ final class DeviceDashboardModel: ObservableObject {
                 let players = isNowReachable
                     ? (self.mediaPlayerService?.players[device.id] ?? [])
                     : (self.cachedPlayers[device.id] ?? [])
-                let sinks = isNowReachable
-                    ? (self.systemVolumeService?.remoteSinks[device.id] ?? [:])
-                    : (self.cachedSinks[device.id] ?? [:])
                 return DashboardDevice(
                     id: device.id,
                     device: device,
                     isReachable: isNowReachable,
                     lastSeenDate: self.lastSeenDates[device.id],
                     players: players,
-                    sinks: sinks,
                     batteryStatus: self.batteryService?.statuses[device.id],
                     connectivityStatus: self.connectivityReportService?.statuses[device.id]
                 )

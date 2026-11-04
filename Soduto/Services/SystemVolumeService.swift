@@ -10,37 +10,31 @@ import Cocoa
 import CoreAudio
 import os
 
-/// Service implementing the kdeconnect.systemvolume plugin.
-///
-/// **Outgoing direction** (`outgoingEnabled`) — Mac as exposer:
+/// Service implementing the exposer side of the kdeconnect.systemvolume plugin (Mac as provider):
 /// - Receives `kdeconnect.systemvolume.request` from the remote (sink-list requests, volume/mute/default changes)
 /// - Sends `kdeconnect.systemvolume` with Mac's CoreAudio output-device list and incremental state updates
 ///
-/// **Incoming direction** (`incomingEnabled`) — Mac as controller:
-/// - Receives `kdeconnect.systemvolume` from the remote (their sink list and state changes)
-/// - Sends `kdeconnect.systemvolume.request` to request their list or adjust their volume/mute/default
-///
-/// Remote sink volumes are stored in the scale declared by the sender's `maxVolume` field, which
-/// is 100 for macOS/Windows and 65536 for Linux (PulseAudio). Always store and use `maxVolume`
-/// per sink when building request packets for a remote device.
-public class SystemVolumeService: BidirectionalService, ObservableObject {
+/// This is the direction stock KDE Connect Android supports (the phone controls the Mac's volume).
+/// The controller side (Mac adjusting the remote device's sinks) was removed from this branch because
+/// stock KDE Connect Android does not expose its audio streams; it lives in the soduto-android work.
+public class SystemVolumeService: OutgoingService, ObservableObject {
     
     // MARK: Types
     
-    /// Represents a single audio output sink, either a local CoreAudio device or a remote one
+    /// Represents a single local CoreAudio audio output sink
     public struct AudioSink {
         /// Opaque name key used in protocol packets (e.g., `"default-73"` for local sinks)
         public let name: String
         /// Human-readable label (e.g., `"Headphones"`, `"Built-in Speakers"`)
         public var description: String
-        /// Volume in `[0, maxVolume]`. Not normalised to 0–100 for remote sinks
+        /// Volume in `[0, maxVolume]`
         public var volume: Int
-        /// Upper bound for `volume`: always 100 for local sinks but may be 65536 for Linux remote sinks
+        /// Upper bound for `volume`: always 100 for local sinks
         public let maxVolume: Int
         public var muted: Bool
         /// Whether this is the current default output device
         public var enabled: Bool
-        /// CoreAudio device ID. `kAudioObjectUnknown` for remote sinks (not addressable locally)
+        /// CoreAudio device ID
         let audioDeviceID: AudioDeviceID
         /// True when the device has independently addressable left/right channels
         var isStereo: Bool
@@ -53,13 +47,9 @@ public class SystemVolumeService: BidirectionalService, ObservableObject {
     // MARK: Properties
     
     var userDefaults: UserDefaults = .standard
-    let incomingPreferenceKey = AppDefaultsStore.Preferences.Services.SystemVolume.incomingKey
     let outgoingPreferenceKey = AppDefaultsStore.Preferences.Services.SystemVolume.outgoingKey
     
     private var kSysObj: AudioObjectID { AudioObjectID(kAudioObjectSystemObject) }
-    
-    /// Remote sinks keyed by `device.id` → sink name → `AudioSink` (incoming / controller side)
-    @Published public private(set) var remoteSinks: [Device.Id: [String: AudioSink]] = [:]
     
     /// Local CoreAudio-backed sinks (outgoing / exposer side)
     private var localSinks: [String: AudioSink] = [:]
@@ -89,26 +79,16 @@ public class SystemVolumeService: BidirectionalService, ObservableObject {
     public static let serviceId: Service.Id = "com.soduto.services.systemvolume"
     
     public var incomingCapabilities: Set<Service.Capability> {
-        var caps = Set<Service.Capability>()
-        if incomingEnabled { caps.insert(DataPacket.systemVolumePacketType) }
-        if outgoingEnabled { caps.insert(DataPacket.systemVolumeRequestPacketType) }
-        return caps
+        outgoingEnabled ? [DataPacket.systemVolumeRequestPacketType] : []
     }
     
     public var outgoingCapabilities: Set<Service.Capability> {
-        var caps = Set<Service.Capability>()
-        if incomingEnabled { caps.insert(DataPacket.systemVolumeRequestPacketType) }
-        if outgoingEnabled { caps.insert(DataPacket.systemVolumePacketType) }
-        return caps
+        outgoingEnabled ? [DataPacket.systemVolumePacketType] : []
     }
     
     public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
         do {
             switch dataPacket.type {
-            case DataPacket.systemVolumePacketType:
-                // Remote device sent us their sink list or a state update (controller role)
-                guard incomingEnabled else { return true }
-                try handleIncomingSystemVolume(dataPacket, from: device)
             case DataPacket.systemVolumeRequestPacketType:
                 // Remote device is controlling our sinks (exposer role)
                 guard outgoingEnabled else { return true }
@@ -123,11 +103,6 @@ public class SystemVolumeService: BidirectionalService, ObservableObject {
     }
     
     public func setup(for device: Device) {
-        // Ask the device for its sink list
-        if device.incomingCapabilities.contains(DataPacket.systemVolumeRequestPacketType) {
-            request(DataPacket.systemVolumeRequestSinksPacket(), from: device)
-        }
-        
         // Start monitoring Mac sink list if we're willing to share it with remote device
         guard !outgoingDevices.contains(where: { $0.id == device.id }) else { return }
         if outgoingEnabled && device.incomingCapabilities.contains(DataPacket.systemVolumePacketType) {
@@ -142,8 +117,6 @@ public class SystemVolumeService: BidirectionalService, ObservableObject {
     }
     
     public func cleanup(for device: Device) {
-        remoteSinks.removeValue(forKey: device.id)
-        
         if let index = outgoingDevices.firstIndex(where: { $0.id == device.id }) {
             outgoingDevices.remove(at: index)
             if outgoingDevices.isEmpty {
@@ -154,48 +127,10 @@ public class SystemVolumeService: BidirectionalService, ObservableObject {
     
     public func actions(for device: Device) -> [ServiceAction] { [] }
     
-    /// Sets the volume of a remote device's audio sink. Called from the dashboard.
-    public func setRemoteSinkVolume(_ volume: Int, sinkName: String, onDevice device: Device) {
-        request(DataPacket.systemVolumeSetVolumePacket(name: sinkName, volume: volume), from: device)
-    }
-    
-    /// Mutes or unmutes a remote device's audio sink. Called from the dashboard.
-    public func setRemoteSinkMuted(_ muted: Bool, sinkName: String, onDevice device: Device) {
-        request(DataPacket.systemVolumeSetMutedPacket(name: sinkName, muted: muted), from: device)
-    }
-    
     public func performAction(_ id: ServiceAction.Id, forDevice device: Device, userInfo: [String: Any]?) {}
     
     
     // MARK: Incoming Packet Handlers
-    
-    private func handleIncomingSystemVolume(_ packet: DataPacket, from device: Device) throws {
-        if packet.hasSinkList() {
-            // Full sink list replacement
-            let rawList = try packet.getSinkList()
-            var sinks: [String: AudioSink] = [:]
-            for raw in rawList {
-                guard let name = raw[DataPacket.SystemVolumeProperty.name] as? String else { continue }
-                let description = raw[DataPacket.SystemVolumeProperty.description] as? String ?? ""
-                let maxVolume   = (raw[DataPacket.SystemVolumeProperty.maxVolume] as? NSNumber)?.intValue ?? 100
-                let volume      = (raw[DataPacket.SystemVolumeProperty.volume]    as? NSNumber)?.intValue ?? 0
-                let muted       = (raw[DataPacket.SystemVolumeProperty.muted]     as? NSNumber)?.boolValue ?? false
-                let enabled     = (raw[DataPacket.SystemVolumeProperty.enabled]   as? NSNumber)?.boolValue ?? false
-                sinks[name] = AudioSink(name: name, description: description, volume: volume, maxVolume: maxVolume, muted: muted, enabled: enabled, audioDeviceID: kAudioObjectUnknown, isStereo: false)
-            }
-            remoteSinks[device.id] = sinks
-            Logger.services.debug("SystemVolume: received \(sinks.count) sinks from \(device.name, privacy: .public)")
-        } else {
-            // Incremental single-stream update
-            let (name, volume, muted, enabled) = try packet.getIncrementalUpdate()
-            if remoteSinks[device.id] == nil { remoteSinks[device.id] = [:] }
-            guard var existing = remoteSinks[device.id]?[name] else { return }
-            if let v = volume  { existing.volume  = v }
-            if let m = muted   { existing.muted   = m }
-            if let e = enabled { existing.enabled = e }
-            remoteSinks[device.id]?[name] = existing
-        }
-    }
     
     private func handleIncomingSystemVolumeRequest(_ packet: DataPacket, from device: Device) throws {
         if packet.isRequestingSinks() {
@@ -605,13 +540,7 @@ fileprivate extension DataPacket {
     
     // MARK: Types
     
-    enum SystemVolumeError: Error {
-        case wrongType
-        case missingSinkList
-        case missingSinkName
-    }
-    
-    struct SystemVolumeProperty {
+struct SystemVolumeProperty {
         static let sinkList     = "sinkList"
         static let name         = "name"
         static let description  = "description"
@@ -659,61 +588,7 @@ fileprivate extension DataPacket {
         return DataPacket(type: systemVolumePacketType, body: body)
     }
     
-    /// Request the remote to send us its sink list
-    static func systemVolumeRequestSinksPacket() -> DataPacket {
-        DataPacket(type: systemVolumeRequestPacketType, body: [
-            SystemVolumeProperty.requestSinks: true as AnyObject
-        ])
-    }
-    
-    /// Ask the remote to set the volume of a named sink
-    /// `volume` must be in the scale of the sink's `maxVolume` (use `volumePercent * maxVolume`)
-    static func systemVolumeSetVolumePacket(name: String, volume: Int) -> DataPacket {
-        DataPacket(type: systemVolumeRequestPacketType, body: [
-            SystemVolumeProperty.name:   name as AnyObject,
-            SystemVolumeProperty.volume: volume as AnyObject,
-        ])
-    }
-    
-    /// Ask the remote to mute or unmute a named sink
-    static func systemVolumeSetMutedPacket(name: String, muted: Bool) -> DataPacket {
-        DataPacket(type: systemVolumeRequestPacketType, body: [
-            SystemVolumeProperty.name:  name as AnyObject,
-            SystemVolumeProperty.muted: muted as AnyObject,
-        ])
-    }
-    
-    /// Ask the remote to make a named sink the default output device
-    static func systemVolumeSetDefaultPacket(name: String) -> DataPacket {
-        DataPacket(type: systemVolumeRequestPacketType, body: [
-            SystemVolumeProperty.name:    name as AnyObject,
-            SystemVolumeProperty.enabled: true as AnyObject,
-        ])
-    }
-    
-    
     // MARK: Incoming packet parsers
-    
-    func hasSinkList() -> Bool {
-        body[SystemVolumeProperty.sinkList] != nil
-    }
-    
-    func getSinkList() throws -> [[String: Any]] {
-        guard isSystemVolumePacket else { throw SystemVolumeError.wrongType }
-        guard let raw = body[SystemVolumeProperty.sinkList] as? [[String: Any]] else {
-            throw SystemVolumeError.missingSinkList
-        }
-        return raw
-    }
-    
-    func getIncrementalUpdate() throws -> (name: String, volume: Int?, muted: Bool?, enabled: Bool?) {
-        guard isSystemVolumePacket else { throw SystemVolumeError.wrongType }
-        guard let name = body[SystemVolumeProperty.name] as? String else {
-            throw SystemVolumeError.missingSinkName
-        }
-        let streamControlFields = getStreamControlFields()
-        return (name, streamControlFields.volume, streamControlFields.muted, streamControlFields.enabled)
-    }
     
     func isRequestingSinks() -> Bool {
         guard isSystemVolumeRequestPacket else { return false }
@@ -725,7 +600,7 @@ fileprivate extension DataPacket {
         return body[SystemVolumeProperty.name] as? String
     }
     
-    /// Returns `(volume?, muted?, enabled?)` from either a stream-control request or an incremental update
+    /// Returns `(volume?, muted?, enabled?)` from a stream-control request
     func getStreamControlFields() -> (volume: Int?, muted: Bool?, enabled: Bool?) {
         let volume  = (body[SystemVolumeProperty.volume]  as? NSNumber)?.intValue
         let muted   = (body[SystemVolumeProperty.muted]   as? NSNumber)?.boolValue
