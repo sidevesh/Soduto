@@ -124,6 +124,11 @@ enum AppDefaultsStore {
                 static let base = "\(Services.base).findmy"
             }
             
+            /// Media sync (MPRIS): incoming = remote players on the Mac, outgoing = Mac player on the remote device
+            enum MediaPlayer: ServiceToggle {
+                static let base = "\(Services.base).mpris"
+            }
+            
             enum MousePad: ServiceIncomingToggle {
                 static let base = "\(Services.base).mousepad"
             }

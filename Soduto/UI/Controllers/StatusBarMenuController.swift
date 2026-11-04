@@ -27,6 +27,8 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
     private var cancellables: Set<AnyCancellable> = []
     /// Persistent references to device menu items keyed by device ID, for in-place image updates
     private var deviceMenuItems: [String: NSMenuItem] = [:]
+    /// Toggles media sync (MPRIS, both directions); inserted below "Launch on Login" in `awakeFromNib`
+    private let mediaSyncMenuItem = NSMenuItem(title: NSLocalizedString("Sync Media Playback", comment: "Status bar menu item"), action: nil, keyEquivalent: "")
     
     lazy var preferencesWindowController: PreferencesWindowController? = {
         let controller = PreferencesWindowController.loadController()
@@ -50,6 +52,12 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
             self.statusBarItem.image = statusBarIcon
         }
         self.statusBarItem.menu = self.statusBarMenu
+        
+        self.mediaSyncMenuItem.target = self
+        self.mediaSyncMenuItem.action = #selector(toggleMediaSync(_:))
+        self.mediaSyncMenuItem.toolTip = NSLocalizedString("Mirror media players between this Mac and your devices. Turn off if, for example, headphones paired to both keep pausing playback.", comment: "Status bar menu item tooltip")
+        let launchOnLoginIndex = self.statusBarMenu.index(of: self.launchOnLoginItem)
+        self.statusBarMenu.insertItem(self.mediaSyncMenuItem, at: launchOnLoginIndex >= 0 ? launchOnLoginIndex + 1 : self.statusBarMenu.numberOfItems)
         
         let dragTypes: [NSPasteboard.PasteboardType] = [
             NSPasteboard.PasteboardType(UTType.url.identifier),
@@ -95,6 +103,11 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
     
     @IBAction func toggleLaunchOnLogin(_ sender: Any?) {
         self.config?.launchOnLogin = !(self.config?.launchOnLogin ?? false)
+    }
+    
+    @objc func toggleMediaSync(_ sender: Any?) {
+        guard let mediaPlayerService = self.serviceManager?.service(ofType: MediaPlayerService.self) else { return }
+        mediaPlayerService.setMediaSyncEnabled(!mediaPlayerService.isMediaSyncEnabled)
     }
     
     @IBAction func refreshNotifications(_ sender: Any?) {
@@ -183,6 +196,7 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
         if menu == self.statusBarMenu {
             self.dashboardMenuItem?.isEnabled = !(deviceDataSource?.pairedDevices.isEmpty ?? true) || !(deviceDataSource?.unavailableDevices.isEmpty ?? true)
             self.refreshMenuDeviceList()
+            self.mediaSyncMenuItem.state = (self.serviceManager?.service(ofType: MediaPlayerService.self)?.isMediaSyncEnabled ?? false) ? .on : .off
             if #available(macOS 13.0, *) {
                 let loginItem = SMAppService.mainApp
                 switch (loginItem.status.rawValue) {

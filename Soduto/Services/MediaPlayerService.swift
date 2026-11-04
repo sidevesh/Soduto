@@ -49,7 +49,10 @@ import MediaRemoteAdapter
 ///   dashboard use (Android uses this for "Continue Watching" video notifications)
 ///
 /// Packets received [type "kdeconnect.mpris.request"] (for the Mac/outgoing player):
-/// - player (string): must match the current Mac player name for Soduto to handle it
+/// - requestPlayerList (boolean): answered with the Mac player list, followed by the current status and album art
+/// - player (string): must match the current Mac player name for Soduto to handle it; a request for any
+///   other name is answered with the current player list so the remote can resync
+/// - requestNowPlaying / requestVolume (boolean): answered with the current Mac player status (includes volume)
 /// - action (string): "Play", "Pause", "PlayPause", "Stop", "Next", "Previous"
 /// - Seek (int): relative seek offset in µs (note capital S)
 /// - SetPosition (int): absolute playback position in ms (note capital S)
@@ -80,7 +83,13 @@ import MediaRemoteAdapter
 /// - Soduto -> remote device: send requests/commands for incoming-side remote players
 /// - Mac media -> remote device: outgoing/exposer path
 /// - Remote device -> Mac media: outgoing control requests handled on Mac
-public class MediaPlayerService: Service, DownloadTaskDelegate, ObservableObject {
+///
+/// **Media sync toggle:** `incomingEnabled` gates the controller side (remote players in the dashboard and
+/// macOS Now Playing), `outgoingEnabled` gates the exposer side (Mac player shown on the remote device).
+/// The status bar menu flips both together via `setMediaSyncEnabled(_:)`, e.g. for headphones paired to
+/// both the Mac and the phone, where mirrored Now Playing sessions make their play/pause buttons fight.
+/// Capabilities stay advertised while disabled so sync can be turned back on without reconnecting.
+public class MediaPlayerService: BidirectionalService, DownloadTaskDelegate, ObservableObject {
     
     // MARK: Types
     
@@ -132,6 +141,13 @@ public class MediaPlayerService: Service, DownloadTaskDelegate, ObservableObject
     // MARK: Service properties
     
     public static let serviceId: Service.Id = "com.soduto.services.mpris"
+    
+    var userDefaults: UserDefaults = .standard
+    let incomingPreferenceKey = AppDefaultsStore.Preferences.Services.MediaPlayer.incomingKey
+    let outgoingPreferenceKey = AppDefaultsStore.Preferences.Services.MediaPlayer.outgoingKey
+    
+    /// Devices set up for this service (regardless of the media sync toggle), so sync can be re-enabled live
+    private var knownDevices: [Device.Id: Device] = [:]
     
     /// Player identities to exclude (system events, not actual media players)
     private static let excludedPlayerNames: Set<String> = [
@@ -197,11 +213,13 @@ extension MediaPlayerService {
     public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
         if dataPacket.isMprisRequestPacket {
             // Phone sending commands for the Mac player (outgoing/exposer side)
+            guard outgoingEnabled else { return true }
             Logger.services.debug("MPRIS::handleDataPacket mprisRequest fromDevice:<\(device, privacy: .public)>")
             handleMacPlayerRequest(dataPacket, from: device)
             return true
         }
         guard dataPacket.isMprisPacket else { return false }
+        guard incomingEnabled else { return true }
         
         Logger.services.debug("MPRIS::handleDataPacket(<\(dataPacket, privacy: .public)> fromDevice:<\(device, privacy: .public)>)")
         
@@ -215,13 +233,60 @@ extension MediaPlayerService {
     }
     
     public func setup(for device: Device) {
-        requestPlayerList(from: device)
-        registerOutgoingDeviceIfSupported(device)
+        knownDevices[device.id] = device
+        if incomingEnabled {
+            requestPlayerList(from: device)
+        }
+        if outgoingEnabled {
+            registerOutgoingDeviceIfSupported(device)
+        } else if mediaController == nil, device.incomingCapabilities.contains(DataPacket.mprisPacketType) {
+            // Keep the Mac Now Playing cache warm so re-enabling sync can push current state right away
+            startMediaController()
+        }
     }
     
     public func cleanup(for device: Device) {
+        knownDevices.removeValue(forKey: device.id)
         cleanupOutgoingDeviceState(for: device)
         cleanupIncomingDeviceState(for: device)
+    }
+    
+    // MARK: Media Sync Toggle
+    
+    /// True when both MPRIS directions are enabled
+    public var isMediaSyncEnabled: Bool { incomingEnabled && outgoingEnabled }
+    
+    /// Turns both MPRIS directions on or off at runtime and applies the change to connected devices.
+    ///
+    /// Disabling tells every device the Mac has no players (so it drops the Mac's media session), forgets
+    /// the remote players and clears Soduto's macOS Now Playing entry. Enabling re-runs the setup handshake
+    /// (player-list request + Mac player state push) for every connected device.
+    public func setMediaSyncEnabled(_ enabled: Bool) {
+        userDefaults.set(enabled, forKey: incomingPreferenceKey)
+        userDefaults.set(enabled, forKey: outgoingPreferenceKey)
+        Logger.services.info("MPRIS::media sync \(enabled ? "enabled" : "disabled", privacy: .public)")
+        
+        if enabled {
+            for device in knownDevices.values {
+                requestPlayerList(from: device)
+                registerOutgoingDeviceIfSupported(device)
+            }
+            return
+        }
+        
+        // Outgoing: withdraw the Mac player but keep the track-info observer running, so the cached
+        // Mac state stays current and is pushed immediately if sync is turned back on
+        for device in outgoingDevices.values {
+            device.send(DataPacket.mprisPlayerListPacket(playerList: []))
+        }
+        outgoingDevices.removeAll()
+        
+        // Incoming: drop remote players and release the Now Playing slot
+        for device in knownDevices.values {
+            cleanupIncomingDeviceState(for: device)
+        }
+        setActivePlayer(nil)
+        nowPlayingInfoCenter.nowPlayingInfo = nil
     }
     
     private func routeIncomingMprisPacket(_ dataPacket: DataPacket, from device: Device) throws {
@@ -255,14 +320,19 @@ extension MediaPlayerService {
             outgoingDevices[device.id] = device
             if mediaController == nil { startMediaController() }
             // Send current state immediately so the phone doesn't wait for the next track event
-            let list: [String] = macPlayerName.map { [$0] } ?? []
-            device.send(DataPacket.mprisPlayerListPacket(playerList: list))
-            if let info = lastSentTrackInfo, let name = macPlayerName {
-                device.send(DataPacket.mprisStatusPacket(player: name, trackInfo: info, artUrl: currentArtUrl, volume: CoreAudioOutputVolume.readPercent()))
-                // Also push cached art to the newly connected device
-                if let artData = currentArtData, let artUrl = currentArtUrl {
-                    device.send(DataPacket.mprisAlbumArtPacket(player: name, artUrl: artUrl, artData: artData))
-                }
+            sendMacPlayerState(to: device)
+        }
+    }
+    
+    /// Sends the Mac player list, then (when something is playing) the current status and cached album art.
+    /// Used both when a device registers and to answer its `requestPlayerList`.
+    private func sendMacPlayerState(to device: Device) {
+        let list: [String] = macPlayerName.map { [$0] } ?? []
+        device.send(DataPacket.mprisPlayerListPacket(playerList: list))
+        if let info = lastSentTrackInfo, let name = macPlayerName {
+            device.send(DataPacket.mprisStatusPacket(player: name, trackInfo: info, artUrl: currentArtUrl, volume: CoreAudioOutputVolume.readPercent()))
+            if let artData = currentArtData, let artUrl = currentArtUrl {
+                device.send(DataPacket.mprisAlbumArtPacket(player: name, artUrl: artUrl, artData: artData))
             }
         }
     }
@@ -314,6 +384,7 @@ extension MediaPlayerService {
     }
     
     public func actions(for device: Device) -> [ServiceAction] {
+        guard incomingEnabled else { return [] }
         guard device.incomingCapabilities.contains(DataPacket.mprisPacketType) else { return [] }
         guard device.pairingStatus == .Paired else { return [] }
         
@@ -998,11 +1069,31 @@ extension MediaPlayerService {
     // MARK: Handle Incoming Control Requests for Outgoing Setup (Remote Device -> Mac Media)
     // NOTE: Receives control commands from the remote device and applies them to macOS media.
     private func handleMacPlayerRequest(_ packet: DataPacket, from device: Device) {
-        // Only handle packets targeting the current Mac player
-        guard let targetPlayer = try? packet.getPlayer(),
-              targetPlayer == macPlayerName else { return }
+        // Player-list request carries no `player` field (sent by KDE Connect Android when its MPRIS plugin starts)
+        if packet.body[DataPacket.MprisProperty.requestPlayerList.rawValue] as? Bool == true {
+            Logger.services.debug("MPRIS::handleMacPlayerRequest — requestPlayerList from \(device.name, privacy: .public)")
+            sendMacPlayerState(to: device)
+            return
+        }
+        
+        guard let targetPlayer = try? packet.getPlayer() else { return }
+        
+        // Only handle packets targeting the current Mac player. A request for any other name means the
+        // remote holds a stale player (e.g. the Now Playing app changed); resend the list so it resyncs
+        guard targetPlayer == macPlayerName else {
+            Logger.services.debug("MPRIS::handleMacPlayerRequest — unknown player \(targetPlayer, privacy: .public), resending player list")
+            device.send(DataPacket.mprisPlayerListPacket(playerList: macPlayerName.map { [$0] } ?? []))
+            return
+        }
         
         Logger.services.debug("MPRIS::handleMacPlayerRequest — target: \(targetPlayer, privacy: .public)")
+        
+        // Status requests (sent for every newly listed player). The status packet includes the volume
+        let requestsNowPlaying = packet.body[DataPacket.MprisProperty.requestNowPlaying.rawValue] as? Bool == true
+        let requestsVolume = packet.body[DataPacket.MprisProperty.requestVolume.rawValue] as? Bool == true
+        if (requestsNowPlaying || requestsVolume), let info = lastSentTrackInfo {
+            device.send(DataPacket.mprisStatusPacket(player: targetPlayer, trackInfo: info, artUrl: currentArtUrl, volume: CoreAudioOutputVolume.readPercent()))
+        }
         
         // Album art requests are served even if the controller has stopped (art is cached independently)
         if let requestedUrl = packet.body[DataPacket.MprisProperty.albumArtUrl.rawValue] as? String,
