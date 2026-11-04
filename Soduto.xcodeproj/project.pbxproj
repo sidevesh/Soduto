@@ -69,8 +69,6 @@
 		31711BA82F17435000E3B9FE /* MediaPlayerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31711BA72F17435000E3B9FE /* MediaPlayerService.swift */; };
 		31711BAC2F17638000E3B9FE /* ImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31711BAB2F17638000E3B9FE /* ImageLoader.swift */; };
 		317C4DF62F8A88AD00067638 /* SystemMediaController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317C4DF52F8A88AD00067638 /* SystemMediaController.swift */; };
-		317F93052FABDBDE00CDC0EC /* RemoteControlWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F93042FABDBDE00CDC0EC /* RemoteControlWindowController.swift */; };
-		317F93072FABDC0D00CDC0EC /* RemoteControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F93062FABDC0D00CDC0EC /* RemoteControlView.swift */; };
 		317F93092FAD451300CDC0EC /* KeyboardUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F93082FAD451300CDC0EC /* KeyboardUtils.swift */; };
 		317F930B2FAE0EB600CDC0EC /* FindMyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F930A2FAE0EB600CDC0EC /* FindMyView.swift */; };
 		317F930D2FAE0F0600CDC0EC /* FindMyWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F930C2FAE0F0600CDC0EC /* FindMyWindowController.swift */; };
@@ -335,8 +333,6 @@
 		31711BA72F17435000E3B9FE /* MediaPlayerService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MediaPlayerService.swift; sourceTree = "<group>"; };
 		31711BAB2F17638000E3B9FE /* ImageLoader.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ImageLoader.swift; sourceTree = "<group>"; };
 		317C4DF52F8A88AD00067638 /* SystemMediaController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemMediaController.swift; sourceTree = "<group>"; };
-		317F93042FABDBDE00CDC0EC /* RemoteControlWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlWindowController.swift; sourceTree = "<group>"; };
-		317F93062FABDC0D00CDC0EC /* RemoteControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlView.swift; sourceTree = "<group>"; };
 		317F93082FAD451300CDC0EC /* KeyboardUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardUtils.swift; sourceTree = "<group>"; };
 		317F930A2FAE0EB600CDC0EC /* FindMyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindMyView.swift; sourceTree = "<group>"; };
 		317F930C2FAE0F0600CDC0EC /* FindMyWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindMyWindowController.swift; sourceTree = "<group>"; };
@@ -682,7 +678,6 @@
 				31AB4B592F5975E000FE3DD4 /* HUDToast.swift */,
 				84651A731E59F9C900D17601 /* MenuView.swift */,
 				31F8A6032F4A53DC00CA5A61 /* PairingView.swift */,
-				317F93062FABDC0D00CDC0EC /* RemoteControlView.swift */,
 				3160AB8C2FB14C1100DE1870 /* RunCommandsView.swift */,
 				8492379E1DE1C87600D95BBA /* ServiceActionMenuItem.swift */,
 				31F8154E2FE55CB9008D30CF /* ShellEditorView.swift */,
@@ -703,7 +698,6 @@
 				849237EB1DE5FC9600D95BBA /* PairingInterfaceController.swift */,
 				31F8A6052F4A555D00CA5A61 /* PairingWindowController.swift */,
 				8421A8E61D761409008AC833 /* PreferencesWindowController.swift */,
-				317F93042FABDBDE00CDC0EC /* RemoteControlWindowController.swift */,
 				843107721E3D32A300AE96AB /* SendMessageWindowController.swift */,
 				024F8B181F24FC7700D6E504 /* ServicePreferencesViewController.swift */,
 				3116837B2FB92CEC00B1AEF8 /* SMSWindowController.swift */,
@@ -1265,7 +1259,6 @@
 				847E9D2B1DF5E2640042D3CE /* TelephonyService.swift in Sources */,
 				31E059DF2F7086EA0019F4FE /* MarqueeText.swift in Sources */,
 				31332A312F6CCE080085A93A /* MediaPlayerSectionView.swift in Sources */,
-				317F93052FABDBDE00CDC0EC /* RemoteControlWindowController.swift in Sources */,
 				31366D382F412C6F0013911D /* STARTTLSHandler.swift in Sources */,
 				31F8A6142F4EECD600CA5A61 /* MDNSEndpointResolver.swift in Sources */,
 				84FA45DA1DDDCB3D00EF3992 /* Device.swift in Sources */,
@@ -1319,7 +1312,6 @@
 				31965FFF2FDF29B9003A3B77 /* NotificationThreadPolicy.swift in Sources */,
 				8499620E1D5728EE002B893A /* Test_Assertions.m in Sources */,
 				8421A8E71D761409008AC833 /* PreferencesWindowController.swift in Sources */,
-				317F93072FABDC0D00CDC0EC /* RemoteControlView.swift in Sources */,
 				31AF2B112F6C9712002C7D38 /* SystemVolumeService.swift in Sources */,
 				849237991DE06EBC00D95BBA /* ServiceAction.swift in Sources */,
 				31332A2B2F6CCD5A0085A93A /* DeviceSidebarView.swift in Sources */,

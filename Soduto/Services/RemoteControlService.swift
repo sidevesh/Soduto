@@ -15,9 +15,10 @@ import os
 /// Implements the outgoing side of the `kdeconnect.mousepad` protocol. When capturing is
 /// active, all Mac keyboard and mouse events are intercepted via a CGEvent tap and forwarded
 /// as `kdeconnect.mousepad.request` packets to the paired target device. The Mac cursor is
-/// hidden and locked to the screen center so the physical pointer stays out of the way.
+/// hidden and locked to the screen center so the physical pointer stays out of the way, and a
+/// floating overlay shows which device is being controlled and how to exit.
 ///
-/// Press **Option+Escape** to toggle capture mode.
+/// Start it with the device's **Control Device** menu action; press **Option+Escape** to exit.
 ///
 /// Requires Accessibility permissions (System Settings › Privacy & Security › Accessibility).
 public class RemoteControlService: OutgoingService, ObservableObject {
@@ -39,12 +40,13 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     }
     
     @Published public private(set) var isCapturing = false
-    @Published public private(set) var remoteKeyboardEnabled = false
-    /// Briefly set when any nav action fires (from button, shortcut, or gesture) so the UI can flash the right button.
-    @Published public private(set) var navHighlight: RemoteControlNavHighlight? = nil
     
-    // Set by whoever owns RemoteControlWindowController (e.g. AppDelegate)
-    var openPanel: ((Device) -> Void)?
+    /// Last `kdeconnect.mousepad.keyboardstate` reported per device: whether it can receive typed keys
+    /// (KDE Connect Android needs its "Keyboard receiver (via accessibility)" or Remote Keyboard enabled).
+    private var remoteKeyboardStates: [Device.Id: Bool] = [:]
+    
+    /// Overlay shown while capturing, naming the target device and the exit shortcut.
+    private var hudPanel: NSPanel?
     
     private var targetDevice: Device?
     private var eventTap: CFMachPort?
@@ -58,7 +60,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     /// Exposes the connected device type to the CGEvent tap callback (which has no `self`).
     var targetDeviceType: DeviceType? { targetDevice?.type }
     
-    // Scroll/swipe accumulation for lock mode — mirrors TrackpadNSView's logic
+    // Scroll/swipe accumulation while capturing
     private var lockScrollAccumDx: Double = 0
     private var lockScrollAccumDy: Double = 0
     private var lockScrollStart: Date?
@@ -69,17 +71,15 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
         guard dataPacket.isMousePadKeyboardStatePacket else { return false }
         if let state = dataPacket.body["state"] as? NSNumber {
-            DispatchQueue.main.async { self.remoteKeyboardEnabled = state.boolValue }
+            remoteKeyboardStates[device.id] = state.boolValue
         }
         return true
     }
     
-    public func setup(for device: Device) {
-        // Reset remoteKeyboardEnabled to trigger view re-evaluation after identity extension fields are refreshed.
-        DispatchQueue.main.async { self.remoteKeyboardEnabled = false }
-    }
+    public func setup(for device: Device) {}
     
     public func cleanup(for device: Device) {
+        remoteKeyboardStates.removeValue(forKey: device.id)
         if targetDevice?.id == device.id {
             stopCapturing()
         }
@@ -97,24 +97,20 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         guard outgoingEnabled, device.pairingStatus == .Paired, device.isReachable else { return [] }
         if isCapturing && targetDevice?.id == device.id {
             return [ServiceAction(id: ActionId.stopInputCapturing.rawValue,
-                                  title: "Unlock Capture",
-                                  description: "Release mouse and keyboard lock",
+                                  title: "Stop Controlling Device",
+                                  description: "Release the mouse and keyboard (⌥⎋)",
                                   service: self, device: device)]
         }
         return [ServiceAction(id: ActionId.startInputCapturing.rawValue,
                               title: "Control Device",
-                              description: "Open remote control panel",
+                              description: "Use this Mac's mouse and keyboard on the device; press ⌥⎋ to stop",
                               service: self, device: device)]
     }
     
     public func performAction(_ id: ServiceAction.Id, forDevice device: Device, userInfo: [String: Any]?) {
         switch id {
         case ActionId.startInputCapturing.rawValue:
-            if let panel = openPanel {
-                panel(device)
-            } else {
-                Logger.services.error("RemoteControlService: openPanel not set — window controller not wired up")
-            }
+            startCapturing(for: device)
         case ActionId.stopInputCapturing.rawValue:
             stopCapturing()
         default:
@@ -133,7 +129,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.messageText = "Accessibility Permissions Required"
-            alert.informativeText = "Lock Input captures all keyboard and mouse events to control the remote device. Soduto needs Accessibility permissions to do this.\n\nGrant access in System Settings › Privacy & Security › Accessibility, then press ⌥+⎋ to activate Lock Input."
+            alert.informativeText = "Control Device captures all keyboard and mouse events to control the remote device. Soduto needs Accessibility permissions to do this.\n\nGrant access in System Settings › Privacy & Security › Accessibility, then choose Control Device again."
             alert.addButton(withTitle: "Open System Settings")
             alert.addButton(withTitle: "Later")
             if alert.runModal() == .alertFirstButtonReturn {
@@ -142,6 +138,21 @@ public class RemoteControlService: OutgoingService, ObservableObject {
                 } else {
                     NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Library/PreferencePanes/Security.prefPane"))
                 }
+            }
+        }
+    }
+    
+    /// Accessibility is reported as granted but the event tap still can't be created. This happens when the
+    /// permission entry belongs to an older build of the app (e.g. after rebuilding or reinstalling).
+    private func showEventTapFailureAlert() {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't Start Controlling the Device"
+            alert.informativeText = "macOS didn't allow Soduto to capture keyboard and mouse input, even though Accessibility access looks granted. This usually means the permission belongs to an older build of Soduto.\n\nRemove Soduto from System Settings › Privacy & Security › Accessibility, add it again, then choose Control Device again."
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Later")
+            if alert.runModal() == .alertFirstButtonReturn {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
             }
         }
     }
@@ -161,9 +172,16 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         isCapturing = true
         isDragging = false
         
+        // Without the tap nothing is forwarded and Option+Escape can't be caught, so never hide the cursor then
+        guard setupEventTap() else {
+            isCapturing = false
+            targetDevice = nil
+            showEventTapFailureAlert()
+            return
+        }
         setupEscapeMonitor()
-        setupEventTap()
         hideCursorAndCenterOnScreen()
+        showHUD(for: device)
     }
     
     func stopCapturing() {
@@ -185,8 +203,88 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         removeEventTap()
         removeEscapeMonitor()
         showCursorAndRestorePosition()
+        hideHUD()
         
         Logger.services.info("Input capture stopped")
+    }
+    
+    
+    // MARK: Overlay
+    
+    private func showHUD(for device: Device) {
+        hideHUD()
+        
+        var lines: [(text: String, font: NSFont)] = [
+            ("Controlling Remote Device", .boldSystemFont(ofSize: 16)),
+            (device.name, .systemFont(ofSize: 14)),
+            ("Press ⌥ Option + Esc to stop", .systemFont(ofSize: 12))
+        ]
+        if remoteKeyboardStates[device.id] == false {
+            lines.append(("Typing needs the keyboard receiver enabled on the device", .systemFont(ofSize: 11)))
+        }
+        
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 6
+        stack.edgeInsets = NSEdgeInsets(top: 16, left: 24, bottom: 16, right: 24)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        for line in lines {
+            let label = NSTextField(labelWithString: line.text)
+            label.font = line.font
+            label.textColor = .white
+            label.alignment = .center
+            stack.addArrangedSubview(label)
+        }
+        
+        let effectView = NSVisualEffectView()
+        effectView.material = .hudWindow
+        effectView.blendingMode = .behindWindow
+        effectView.state = .active
+        effectView.wantsLayer = true
+        effectView.layer?.cornerRadius = 12
+        effectView.layer?.masksToBounds = true
+        effectView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: effectView.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: effectView.bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: effectView.trailingAnchor)
+        ])
+        
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 100),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false)
+        panel.level = .floating
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.appearance = NSAppearance(named: .vibrantDark)
+        panel.contentView = effectView
+        panel.setContentSize(stack.fittingSize)
+        
+        // Top-center of the screen the cursor is locked to
+        if let screen = NSScreen.main {
+            let frame = screen.visibleFrame
+            let size = panel.frame.size
+            panel.setFrameOrigin(NSPoint(x: frame.midX - size.width / 2, y: frame.maxY - size.height - 40))
+        }
+        
+        panel.orderFrontRegardless()
+        hudPanel = panel
+    }
+    
+    private func hideHUD() {
+        guard let panel = hudPanel else { return }
+        // Order out instead of close(): closing a borderless panel we still reference can over-release it
+        panel.orderOut(nil)
+        panel.contentView = nil
+        hudPanel = nil
     }
     
     
@@ -220,7 +318,8 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     
     // MARK: Event tap
     
-    private func setupEventTap() {
+    /// Returns false when the tap can't be created (usually missing or stale Accessibility permission).
+    private func setupEventTap() -> Bool {
         let eventMask: CGEventMask = [
             CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp, .leftMouseDragged,
             .rightMouseDown, .rightMouseUp, .rightMouseDragged,
@@ -237,7 +336,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
             userInfo: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         ) else {
             Logger.services.error("Failed to create CGEvent tap for remote control")
-            return
+            return false
         }
         
         eventTap = tap
@@ -246,6 +345,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
             CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
         }
         CGEvent.tapEnable(tap: tap, enable: true)
+        return true
     }
     
     private func removeEventTap() {
@@ -350,18 +450,9 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     
     // Android navigation: click mappings are standard across KDE Connect Android clients, similar to a physical keyboard.
     // rightclick → Back, middleclick → Home, doubleclick → Recents.
-    func sendBack(to device: Device)    { sendRightClick(to: device);  flash(.back) }
-    func sendHome(to device: Device)    { sendMiddleClick(to: device); flash(.home) }
-    func sendRecents(to device: Device) { sendDoubleClick(to: device); flash(.recents) }
-    
-    private func flash(_ h: RemoteControlNavHighlight) {
-        DispatchQueue.main.async { [weak self] in
-            self?.navHighlight = h
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                if self?.navHighlight == h { self?.navHighlight = nil }
-            }
-        }
-    }
+    func sendBack(to device: Device)    { sendRightClick(to: device) }
+    func sendHome(to device: Device)    { sendMiddleClick(to: device) }
+    func sendRecents(to device: Device) { sendDoubleClick(to: device) }
     
     /// True when the peer is (inferred to be) KDE Connect Android, i.e. a phone or tablet.
     /// Used in the CGEvent tap to decide between spoon-feeding vs raw passthrough.
@@ -471,9 +562,9 @@ public class RemoteControlService: OutgoingService, ObservableObject {
             }
             return nil
             
-        // MARK: Scroll / swipe (lock mode)
+        // MARK: Scroll / swipe
         case .scrollWheel:
-            // Use NSEvent's scrollingDeltaX/Y (pixel values) — same source as windowed mode.
+            // Use NSEvent's scrollingDeltaX/Y (pixel values).
             // CGEvent's scrollWheelEventDeltaAxis fields return integer line counts which are
             // often 0 on modern trackpads that use precise pixel scrolling.
             guard let nsEvent = NSEvent(cgEvent: event) else { return nil }
@@ -485,7 +576,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
                 service.sendScroll(dx: dx, dy: dy, to: device)
             }
             
-            // Swipe detection using the same phase + threshold logic as TrackpadNSView
+            // Quick two-finger flick → touch-drag swipe on the device
             switch nsEvent.phase {
             case .began:
                 service.lockScrollAccumDx = dx
@@ -526,8 +617,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
                 let ctrl  = flags.contains(.maskControl)
                 let noAlt = !flags.contains(.maskAlternate)
                 
-                // Android shortcuts: intercepted in the tap so they work even in lock mode.
-                // Consume them so they don't also appear as forwarded key packets.
+                // Android navigation shortcuts. Consume them so they don't also appear as forwarded key packets.
                 if cmd && noAlt && !ctrl, let device = service.targetDevice {
                     switch (keyCode, shift) {
                     case (33, false): DispatchQueue.main.async { service.sendBack(to: device) };       return nil  // Cmd+[       → Back
@@ -535,13 +625,6 @@ public class RemoteControlService: OutgoingService, ObservableObject {
                     case (15,  true): DispatchQueue.main.async { service.sendRecents(to: device) };    return nil  // Cmd+Shift+R → Recents
                     default: break
                     }
-                }
-                
-                // Mac window shortcuts: pass through so panel responds even while locked.
-                // Desktop lock mode: these fall through to key-send (forwarded to device).
-                if cmd && noAlt {
-                    if keyCode == 13 && !ctrl  { return Unmanaged.passUnretained(event) }  // Cmd+W → close
-                    if keyCode == 3  &&  ctrl  { return Unmanaged.passUnretained(event) }  // Cmd+Ctrl+F → fullscreen
                 }
             }
             
@@ -553,7 +636,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
             if let specialKey = kdeSpecialKey(for: keyCode) {
                 service.sendSpecialKey(specialKey, shift: shift, ctrl: ctrl, alt: alt, command: command, to: device)
             } else {
-                // Vanilla Android: spoon-feed event.characters. Other targets: base glyph + modifiers.
+                // KDE Connect Android: spoon-feed event.characters. Other targets: base glyph + modifiers.
                 let key: String
                 if service.isVanillaAndroid {
                     if let nsEvent = NSEvent(cgEvent: event) {
@@ -581,13 +664,6 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         }
     }
 }
-
-// MARK: Nav highlight type
-
-public enum RemoteControlNavHighlight: Equatable {
-    case back, home, recents
-}
-
 
 // MARK: DataPacket (MousePad)
 
