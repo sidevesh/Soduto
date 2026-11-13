@@ -232,8 +232,10 @@ struct RunCommandsView: View {
         } description: {
             Text("Add shell commands to run them remotely from connected devices.")
         } actions: {
-            Button("Add Command") { showingAddSheet = true }
-                .buttonStyle(.borderedProminent)
+            // Standard (not prominent) button: the sheet's Done is already the default, prominent action
+            Button("Add Command…") { showingAddSheet = true }
+                .controlSize(.large)
+                .keyboardShortcut("n", modifiers: .command)
         }
     }
     
@@ -261,15 +263,19 @@ struct RunCommandsView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
             Spacer()
-            Button {
-                showingAddSheet = true
-            } label: {
-                Image(systemName: "plus")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(.primary)
+            // The empty state carries its own Add button; only offer the header one once there's a list
+            if !viewModel.commands.isEmpty {
+                Button {
+                    showingAddSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(.primary)
+                }
+                .buttonStyle(.plain)
+                .help("Add Command")
+                .keyboardShortcut("n", modifiers: .command)
             }
-            .buttonStyle(.plain)
-            .help("Add Command")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
