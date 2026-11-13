@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0  # full history so `git describe` can name the build
 
@@ -60,6 +60,20 @@ jobs:
           BUNDLE_ID = $BUNDLE_ID
           EOF
           cat LocalConfig.xcconfig
+
+          # Signing overrides for the ad-hoc CI build, passed with `-xcconfig` so they take precedence over
+          # the project's settings (conditional `[sdk=...]` keys can't be given on the xcodebuild command line).
+          # Ad-hoc signing keeps the entitlements (sandbox, app group, network), which the Share extension
+          # needs to load. Hardened runtime is only required for notarization and is turned off so ad-hoc
+          # signed frameworks pass library validation.
+          cat > "$RUNNER_TEMP/ci-signing.xcconfig" <<EOF
+          CODE_SIGN_STYLE = Manual
+          CODE_SIGN_IDENTITY = -
+          CODE_SIGN_IDENTITY[sdk=macosx*] = -
+          DEVELOPMENT_TEAM =
+          PROVISIONING_PROFILE_SPECIFIER =
+          ENABLE_HARDENED_RUNTIME = NO
+          EOF
 
           # Sparkle's feed (SUFeedURL) is the upstream fork's appcast. Don't let this build check it
           # automatically and offer to replace itself with that fork's release.
@@ -90,9 +104,6 @@ jobs:
       - name: Build (Release, ad-hoc signed)
         run: |
           set -o pipefail
-          # Ad-hoc signing keeps the entitlements (sandbox, app group, network), which the Share
-          # extension needs to load. Hardened runtime is only required for notarization and is turned
-          # off so ad-hoc signed frameworks pass library validation.
           xcodebuild build \
             -project Soduto.xcodeproj \
             -scheme Soduto \
@@ -102,18 +113,13 @@ jobs:
             -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages" \
             -skipPackagePluginValidation \
             -skipMacroValidation \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY=- \
-            "CODE_SIGN_IDENTITY[sdk=macosx*]=-" \
-            DEVELOPMENT_TEAM= \
-            PROVISIONING_PROFILE_SPECIFIER= \
-            ENABLE_HARDENED_RUNTIME=NO \
+            -xcconfig "$RUNNER_TEMP/ci-signing.xcconfig" \
             2>&1 | tee xcodebuild.log | grep -E 'error:|warning: .*(entitlement|sign)|\*\* BUILD' || true
           grep -q '\*\* BUILD SUCCEEDED \*\*' xcodebuild.log
 
       - name: Upload build log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: xcodebuild-log
           path: xcodebuild.log
@@ -146,7 +152,7 @@ jobs:
           shasum -a 256 "${{ steps.version.outputs.dmg_name }}" | tee "${{ steps.version.outputs.dmg_name }}.sha256"
 
       - name: Upload DMG
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.version.outputs.artifact_name }}
           path: |
