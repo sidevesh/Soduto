@@ -30,12 +30,10 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
     /// Toggles media sync (MPRIS, both directions); inserted below "Launch on Login" in `awakeFromNib`
     private let mediaSyncMenuItem = NSMenuItem(title: NSLocalizedString("Sync Media Playback", comment: "Status bar menu item"), action: nil, keyEquivalent: "")
     
-    lazy var preferencesWindowController: PreferencesWindowController? = {
-        let controller = PreferencesWindowController.loadController()
-        controller.deviceDataSource = self.deviceDataSource
-        controller.config = self.config
-        return controller
-    }()
+    private var settingsWindowController: SettingsWindowController?
+    /// The template Soduto icon, shown unless the menu bar is set to show a single connected device's status
+    private var sodutoStatusIcon: NSImage?
+    private var defaultsObserver: NSObjectProtocol?
     
     private var dashboardWindowController: DeviceDashboardWindowController?
     
@@ -44,6 +42,7 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
     override public func awakeFromNib() {
         let statusBarIcon = #imageLiteral(resourceName: "statusBarIcon")
         statusBarIcon.isTemplate = true
+        self.sodutoStatusIcon = statusBarIcon
         
         if #available(macOS 10.14, *) {
             self.statusBarItem.button?.image = statusBarIcon
@@ -63,6 +62,11 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
             NSPasteboard.PasteboardType(UTType.text.identifier) ]
         self.statusBarItem.button?.window?.registerForDraggedTypes(dragTypes)
         self.statusBarItem.button?.window?.delegate = self
+        
+        // Menu bar options are toggled in Settings; follow them live
+        self.defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.updateStatusItemImage() }
+        }
     }
     
     private func setupServiceObservers() {
@@ -106,7 +110,14 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
     }
     
     @IBAction func openPreferences(_ sender: Any?) {
-        self.preferencesWindowController?.showWindow(nil)
+        if settingsWindowController == nil {
+            settingsWindowController = SettingsWindowController(
+                config: config,
+                updateManager: AppDelegate.shared().updateManager,
+                onOpenDashboard: { [weak self] in self?.openDashboard(nil) }
+            )
+        }
+        settingsWindowController?.show()
     }
     
     @IBAction func openDashboard(_ sender: Any?) {
@@ -115,6 +126,7 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
                   let serviceManager = serviceManager else { return }
             let controller = DeviceDashboardWindowController(
                 deviceDataSource: deviceDataSource,
+                deviceManager: AppDelegate.shared().deviceManager,
                 mediaPlayerService: serviceManager.service(ofType: MediaPlayerService.self),
                 batteryService: serviceManager.service(ofType: BatteryService.self),
                 connectivityReportService: serviceManager.service(ofType: ConnectivityReportService.self)
@@ -184,7 +196,7 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
         // Only broadcast on: app start, network change, manual Cmd+R
         
         if menu == self.statusBarMenu {
-            self.dashboardMenuItem?.isEnabled = !(deviceDataSource?.pairedDevices.isEmpty ?? true) || !(deviceDataSource?.unavailableDevices.isEmpty ?? true)
+            self.dashboardMenuItem?.isEnabled = true
             self.refreshMenuDeviceList()
             self.mediaSyncMenuItem.state = (self.serviceManager?.service(ofType: MediaPlayerService.self)?.isMediaSyncEnabled ?? false) ? .on : .off
             if #available(macOS 13.0, *) {
@@ -210,9 +222,9 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
     // MARK: Public methods
     
     func refreshDeviceLists() {
-        self.preferencesWindowController?.refreshDeviceLists()
         self.dashboardWindowController?.refreshDeviceList()
-        self.dashboardMenuItem?.isEnabled = !(deviceDataSource?.pairedDevices.isEmpty ?? true) || !(deviceDataSource?.unavailableDevices.isEmpty ?? true)
+        self.dashboardMenuItem?.isEnabled = true
+        Task { @MainActor [weak self] in self?.updateStatusItemImage() }
     }
     
     /// Call this once from AppDelegate after all services have been registered.
@@ -254,8 +266,64 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
     /// Called by service observers for real-time battery/connectivity changes.
     /// Also restores the title defensively as AppKit can drop the title text when the image
     /// is updated while the menu is mid-render (transient layout glitch).
+    /// Shows the single connected device's icon / signal / battery in the menu bar when enabled in Settings,
+    /// otherwise (or with zero or several connected devices) the Soduto icon.
+    @MainActor
+    private func updateStatusItemImage() {
+        guard let button = statusBarItem.button else { return }
+        let connected = deviceDataSource?.pairedRechableDevices ?? []
+        if AppDefaultsStore.Preferences.MenuBar.showsDeviceStatus,
+           connected.count == 1, let device = connected.first,
+           let image = deviceStatusImage(for: device) {
+            button.image = image
+            button.toolTip = device.name
+            statusBarItem.length = NSStatusItem.variableLength
+        } else {
+            button.image = sodutoStatusIcon
+            button.toolTip = nil
+            statusBarItem.length = NSStatusItem.squareLength
+        }
+    }
+    
+    @MainActor
+    private func deviceStatusImage(for device: Device) -> NSImage? {
+        let prefs = AppDefaultsStore.Preferences.MenuBar.self
+        var fragments: [NSImage] = []
+        if prefs.showDeviceIcon {
+            let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [.labelColor]))
+            if let symbol = NSImage(systemSymbolName: device.type.sfSymbolName, accessibilityDescription: device.name)?
+                .withSymbolConfiguration(configuration) {
+                fragments.append(symbol)
+            }
+        }
+        if prefs.showSignal, let signal = serviceManager?.service(ofType: ConnectivityReportService.self)?.statusBarImage(for: device) {
+            fragments.append(signal)
+        }
+        if prefs.showBattery, let battery = serviceManager?.service(ofType: BatteryService.self)?.statusBarImage(for: device) {
+            fragments.append(battery)
+        }
+        guard !fragments.isEmpty else { return nil }
+        
+        let spacing: CGFloat = 4
+        let height = max(16, fragments.map(\.size.height).max() ?? 16)
+        let width = fragments.map(\.size.width).reduce(0, +) + spacing * CGFloat(fragments.count - 1)
+        // Drawn lazily, so `labelColor` resolves against the menu bar's current appearance
+        let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
+            var x: CGFloat = 0
+            for fragment in fragments {
+                fragment.draw(in: NSRect(x: x, y: (height - fragment.size.height) / 2, width: fragment.size.width, height: fragment.size.height))
+                x += fragment.size.width + spacing
+            }
+            return true
+        }
+        image.accessibilityDescription = device.name
+        return image
+    }
+    
     @MainActor
     private func updateDeviceImages() {
+        updateStatusItemImage()
         guard let devices = self.deviceDataSource?.pairedDevices else { return }
         for device in devices {
             guard let item = deviceMenuItems[device.id] else { continue }

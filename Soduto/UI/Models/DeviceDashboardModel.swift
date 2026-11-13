@@ -35,9 +35,12 @@ struct DashboardDevice: Identifiable {
 final class DeviceDashboardModel: ObservableObject {
     
     @Published private(set) var devices: [DashboardDevice] = []
+    /// Reachable devices that aren't paired yet, offered for pairing in the sidebar's Nearby section
+    @Published private(set) var nearbyDevices: [Device] = []
     @Published var selectedDeviceId: Device.Id?
     
     private let deviceDataSource: DeviceDataSource
+    private weak var deviceManager: DeviceManager?
     let mediaPlayerService: MediaPlayerService?
     let batteryService: BatteryService?
     let connectivityReportService: ConnectivityReportService?
@@ -49,10 +52,12 @@ final class DeviceDashboardModel: ObservableObject {
     private var cachedPlayers: [Device.Id: [PlayerRemote]] = [:]
     
     init(deviceDataSource: DeviceDataSource,
+         deviceManager: DeviceManager?,
          mediaPlayerService: MediaPlayerService?,
          batteryService: BatteryService?,
          connectivityReportService: ConnectivityReportService?) {
         self.deviceDataSource = deviceDataSource
+        self.deviceManager = deviceManager
         self.mediaPlayerService = mediaPlayerService
         self.batteryService = batteryService
         self.connectivityReportService = connectivityReportService
@@ -91,6 +96,43 @@ final class DeviceDashboardModel: ObservableObject {
     
     /// Called by `StatusBarMenuController` whenever device connectivity or pairing state changes.
     func refreshDeviceList() {
+        rebuildDevices()
+    }
+    
+    // MARK: - Device Management
+    
+    /// The nearby (unpaired) device with this id, if any
+    func nearbyDevice(withId id: Device.Id) -> Device? {
+        nearbyDevices.first { $0.id == id }
+    }
+    
+    /// Announces this Mac on the network so devices that missed it connect (⌘R)
+    func discoverDevices() {
+        NotificationCenter.default.post(name: ConnectionProvider.broadcastAnnouncementNotification, object: nil)
+        rebuildDevices()
+    }
+    
+    /// Closes every connection, waits for the teardown, then rediscovers devices.
+    /// Last resort for connections that look alive but no longer carry packets.
+    func forceReconnect() {
+        guard let deviceManager else { return }
+        deviceManager.closeAllConnections()
+        // Wait for the asynchronous closes so new connections don't race the old ones
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            NetworkUtils.pingLocalNetwork()  // fills the ARP table so directed announcements reach devices
+            NotificationCenter.default.post(name: ConnectionProvider.broadcastAnnouncementNotification, object: nil)
+            self?.rebuildDevices()
+        }
+    }
+    
+    func pair(_ device: Device) {
+        device.requestPairing()
+        PairingWindowController.showOutgoingRequest(for: device)
+        rebuildDevices()
+    }
+    
+    func unpair(_ device: Device) {
+        device.unpair()
         rebuildDevices()
     }
     
@@ -176,9 +218,16 @@ final class DeviceDashboardModel: ObservableObject {
             }
             .sorted { $0.device.name < $1.device.name }
             
-            // Auto-select first device if nothing is selected or selection is gone
-            if self.selectedDeviceId == nil || !self.devices.contains(where: { $0.id == self.selectedDeviceId }) {
-                self.selectedDeviceId = self.devices.first?.id
+            let pairedIds = Set(allPaired.map(\.id))
+            self.nearbyDevices = self.deviceDataSource.unpairedDevices
+                .filter { !pairedIds.contains($0.id) }
+                .sorted { $0.name < $1.name }
+            
+            // Auto-select the first paired device if nothing is selected or the selection is gone
+            let selectionExists = self.devices.contains(where: { $0.id == self.selectedDeviceId })
+                || self.nearbyDevices.contains(where: { $0.id == self.selectedDeviceId })
+            if self.selectedDeviceId == nil || !selectionExists {
+                self.selectedDeviceId = self.devices.first?.id ?? self.nearbyDevices.first?.id
             }
         }
     }

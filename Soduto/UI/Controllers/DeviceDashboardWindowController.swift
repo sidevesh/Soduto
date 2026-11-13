@@ -20,11 +20,13 @@ final class DeviceDashboardWindowController: NSWindowController, NSWindowDelegat
     private static let minimumContentSize = NSSize(width: 680, height: 460)
     
     init(deviceDataSource: DeviceDataSource,
+         deviceManager: DeviceManager?,
          mediaPlayerService: MediaPlayerService?,
          batteryService: BatteryService?,
          connectivityReportService: ConnectivityReportService?) {
         let model = DeviceDashboardModel(
             deviceDataSource: deviceDataSource,
+            deviceManager: deviceManager,
             mediaPlayerService: mediaPlayerService,
             batteryService: batteryService,
             connectivityReportService: connectivityReportService
@@ -37,7 +39,12 @@ final class DeviceDashboardWindowController: NSWindowController, NSWindowDelegat
             backing: .buffered,
             defer: false
         )
-        window.title = "No Devices"
+        window.title = "Dashboard"
+        // An (empty) toolbar gives SwiftUI's `.toolbar` items (Refresh, More) a place in the title bar
+        let toolbar = NSToolbar(identifier: NSToolbar.Identifier("DeviceDashboardToolbar"))
+        toolbar.displayMode = .iconOnly
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
         window.setFrameAutosaveName("DeviceDashboard")
         window.center()
         
@@ -60,13 +67,15 @@ final class DeviceDashboardWindowController: NSWindowController, NSWindowDelegat
         }
         
         titleCancellable = model.$selectedDeviceId
-            .combineLatest(model.$devices)
+            .combineLatest(model.$devices, model.$nearbyDevices)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] (selectedId, devices) in
+            .sink { [weak self] (selectedId, devices, nearby) in
                 if let id = selectedId, let device = devices.first(where: { $0.id == id }) {
                     self?.window?.title = device.device.name
+                } else if let id = selectedId, let device = nearby.first(where: { $0.id == id }) {
+                    self?.window?.title = device.name
                 } else {
-                    self?.window?.title = "No Devices"
+                    self?.window?.title = "Dashboard"
                 }
             }
     }

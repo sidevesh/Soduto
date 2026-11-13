@@ -45,7 +45,7 @@
                         <action selector="openDashboard:" target="vQj-dd-GoX" id="rR2-vZ-ooO"/>
                     </connections>
                 </menuItem>
-                <menuItem title="Preferences" keyEquivalent="," id="NNU-ep-Fgn">
+                <menuItem title="Settings…" keyEquivalent="," id="NNU-ep-Fgn">
                     <connections>
                         <action selector="openPreferences:" target="vQj-dd-GoX" id="rrW-aH-Gim"/>
                     </connections>

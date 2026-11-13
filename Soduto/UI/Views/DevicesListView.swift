@@ -100,40 +100,38 @@ struct DevicesListView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header with refresh button
-            HStack {
+            // Header: plain section-style title with standard borderless controls, on the window's own
+            // background (no tinted bar or coloured icons, so it reads like the rest of the window)
+            HStack(spacing: 12) {
                 Text("Devices")
                     .font(.headline)
-                    .foregroundColor(.secondary)
                 
                 Spacer()
                 
-                Button(action: {
+                Button {
                     viewModel.manualRefresh()
-                }) {
+                } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                         .labelStyle(.iconOnly)
                 }
                 .buttonStyle(.borderless)
-                .foregroundStyle(.yellow)
-                .help("Discover devices (⌘R)")
+                .help("Look for devices on the network (⌘R)")
                 .keyboardShortcut("r", modifiers: .command)
                 
-                Button(action: {
-                    showingForceReconnectAlert = true
-                }) {
-                    Label("Force Reconnect", systemImage: "bolt.slash")
+                Menu {
+                    Button("Force Reconnect…") { showingForceReconnectAlert = true }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
                         .labelStyle(.iconOnly)
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.red)
-                .help("⚠ Zap reconnect: closes active TCP connections, waits for teardown, then rediscovers devices.")
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("More")
             }
             .padding(.horizontal, 16)
-            .padding(.vertical,6)
-            .background(Color(nsColor: .controlBackgroundColor))
-            
-            Divider()
+            .padding(.top, 10)
+            .padding(.bottom, 4)
             
             // Device list
             if viewModel.devices.isEmpty {
@@ -145,11 +143,11 @@ struct DevicesListView: View {
         .frame(minWidth: 400, minHeight: 300)
         .alert(isPresented: $showingForceReconnectAlert) {
             Alert(
-                title: Text("Zap Connections and Reconnect?"),
+                title: Text("Force Reconnect?"),
                 message: Text(
-                    "⚠ WARNING: EXPERIMENTAL FEATURE AHEAD\n\nThis will immediately close all active TCP connections, wait about 10 seconds for teardown, then trigger rediscovery and reconnect.\nUse this to immediately hard refresh available devices.\n\nTIP: If devices do not reconnect automatically, use the Refresh (⌘R) button."
+                    "All connections are closed, then Soduto looks for your devices again after about 10 seconds. Use this when a device shows as connected but nothing gets through. Try Refresh first."
                 ),
-                primaryButton: .destructive(Text("Proceed")) {
+                primaryButton: .destructive(Text("Reconnect")) {
                     viewModel.forceReconnect()
                 },
                 secondaryButton: .cancel()

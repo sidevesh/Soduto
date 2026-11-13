@@ -89,14 +89,31 @@ enum AppDefaultsStore {
     enum Preferences {
         fileprivate static let base = "\(AppDefaultsStore.base).preferences"
         
+        static let disableSharePopUpKey = "\(base).disablesharepopup"
         static var disableSharePopUp: Bool {
-            get { UserDefaults.standard.bool(forKey: "\(base).disablesharepopup") }
-            set { UserDefaults.standard.set(newValue, forKey: "\(base).disablesharepopup") }
+            get { UserDefaults.standard.bool(forKey: disableSharePopUpKey) }
+            set { UserDefaults.standard.set(newValue, forKey: disableSharePopUpKey) }
         }
         
+        static let deviceTypeKey = "\(base).devicetype"
         static var deviceType: Int {
-            get { UserDefaults.standard.integer(forKey: "\(base).devicetype") }
-            set { UserDefaults.standard.set(newValue, forKey: "\(base).devicetype") }
+            get { UserDefaults.standard.integer(forKey: deviceTypeKey) }
+            set { UserDefaults.standard.set(newValue, forKey: deviceTypeKey) }
+        }
+        
+        // MARK: Menu Bar
+        
+        /// What the menu bar icon shows while exactly one device is connected (otherwise the Soduto icon)
+        enum MenuBar {
+            fileprivate static let base = "\(Preferences.base).menubar"
+            static let showDeviceIconKey = "\(base).showDeviceIcon"
+            static let showBatteryKey = "\(base).showBattery"
+            static let showSignalKey = "\(base).showSignal"
+            
+            static var showDeviceIcon: Bool { UserDefaults.standard.bool(forKey: showDeviceIconKey) }
+            static var showBattery: Bool { UserDefaults.standard.bool(forKey: showBatteryKey) }
+            static var showSignal: Bool { UserDefaults.standard.bool(forKey: showSignalKey) }
+            static var showsDeviceStatus: Bool { showDeviceIcon || showBattery || showSignal }
         }
         
         // MARK: Service Enable/Disable
