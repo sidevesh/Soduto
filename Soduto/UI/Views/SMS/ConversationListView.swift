@@ -147,6 +147,21 @@ struct ConversationListView: View {
     
     @ViewBuilder
     private var emptyState: some View {
+        if model.phoneDidNotRespond && model.searchText.isEmpty {
+            ContentUnavailableView {
+                Label("No Response from Phone", systemImage: "exclamationmark.bubble")
+            } description: {
+                Text("Make sure the SMS plugin is turned on in KDE Connect on your phone and has permission to read messages.")
+            } actions: {
+                Button("Try Again") { model.retryLoadingConversations() }
+            }
+        } else {
+            loadingOrEmptyState
+        }
+    }
+    
+    @ViewBuilder
+    private var loadingOrEmptyState: some View {
         VStack(spacing: 8) {
             if model.isLoadingMoreConversations {
                 ProgressView()

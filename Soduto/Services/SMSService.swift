@@ -183,6 +183,9 @@ public class SMSService: NSObject, IncomingService, ObservableObject, DownloadTa
     public struct ListPaginationSnapshot: Equatable {
         public let isLoading: Bool
         public let hasReachedEnd: Bool
+        /// The last conversation-list request got no answer at all within `listResponseTimeout`
+        /// (typically the phone's SMS plugin is disabled or lacks permission to read messages).
+        public var phoneDidNotRespond: Bool = false
     }
     @Published public private(set) var listPaginationSnapshots: [Device.Id: ListPaginationSnapshot] = [:]
     
@@ -230,18 +233,23 @@ public class SMSService: NSObject, IncomingService, ObservableObject, DownloadTa
         var hasReachedEnd: Bool = false
         var lastResponseMessageCount: Int = 0
         var settleWorkItem: DispatchWorkItem?
+        var timeoutWorkItem: DispatchWorkItem?
+        var didTimeOut: Bool = false
     }
     private var listPagination: [Device.Id: ListPaginationState] = [:] {
         didSet { publishListPaginationSnapshots() }
     }
     private static let listSettleInterval: TimeInterval = 1.5
+    /// How long to wait for the first conversation before telling the user the phone isn't answering.
+    private static let listResponseTimeout: TimeInterval = 20
     
     private func publishListPaginationSnapshots() {
         var snapshots: [Device.Id: ListPaginationSnapshot] = [:]
         for (id, state) in listPagination {
             snapshots[id] = ListPaginationSnapshot(
                 isLoading: state.inFlight,
-                hasReachedEnd: state.hasReachedEnd
+                hasReachedEnd: state.hasReachedEnd,
+                phoneDidNotRespond: state.didTimeOut
             )
         }
         listPaginationSnapshots = snapshots
@@ -367,7 +375,22 @@ public class SMSService: NSObject, IncomingService, ObservableObject, DownloadTa
         }
         state.inFlight = true
         state.lastResponseMessageCount = 0
+        state.didTimeOut = false
+        state.timeoutWorkItem?.cancel()
+        let deviceId = device.id
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, var s = self.listPagination[deviceId], s.inFlight, s.lastResponseMessageCount == 0 else { return }
+            // Nothing arrived: stop the spinner but keep `hasReachedEnd` false so Retry can ask again.
+            // A late answer still lands in the list (it is handled like a live message once not in flight).
+            s.inFlight = false
+            s.didTimeOut = true
+            s.timeoutWorkItem = nil
+            self.listPagination[deviceId] = s
+            Logger.services.notice("SMSService: no conversations from \(deviceId, privacy: .public) within \(Self.listResponseTimeout, privacy: .public)s")
+        }
+        state.timeoutWorkItem = timeout
         listPagination[device.id] = state
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.listResponseTimeout, execute: timeout)
         Logger.services.info("SMSService bootstrapping conversation list for \(device.id, privacy: .public)")
         request(DataPacket.smsRequestConversationsPacket(), from: device)
     }
@@ -774,6 +797,9 @@ public class SMSService: NSObject, IncomingService, ObservableObject, DownloadTa
             guard let self = self else { return }
             var state = self.listPagination[deviceId] ?? ListPaginationState()
             state.lastResponseMessageCount += batchCount
+            state.timeoutWorkItem?.cancel()
+            state.timeoutWorkItem = nil
+            state.didTimeOut = false
             state.settleWorkItem?.cancel()
             let work = DispatchWorkItem { [weak self] in
                 guard let self = self else { return }

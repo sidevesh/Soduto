@@ -357,6 +357,13 @@ final class SMSDataModel: ObservableObject {
     
     var isLoadingMoreConversations: Bool { listPaginationSnapshot.isLoading }
     var hasReachedEndOfConversations: Bool { listPaginationSnapshot.hasReachedEnd }
+    /// The phone never answered the conversation-list request (SMS plugin off or missing permission).
+    var phoneDidNotRespond: Bool { listPaginationSnapshot.phoneDidNotRespond }
+    
+    /// Asks the phone for its conversations again after `phoneDidNotRespond`.
+    func retryLoadingConversations() {
+        smsService.bootstrapConversations(for: device)
+    }
     
     /// Display title for the currently selected conversation, used as the window title.
     /// Nil when no thread is selected; caller substitutes a generic fallback.
