@@ -81,6 +81,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, BrowserWindowControllerDeleg
     func browserWindowWillClose(_ controller: BrowserWindowController) {
         guard let index = self.browserWindowControllers.firstIndex(of: controller) else { return }
         self.browserWindowControllers.remove(at: index)
+        // applicationShouldTerminateAfterLastWindowClosed doesn't fire if the window closes while another
+        // (e.g. an alert) is around; quit explicitly once the last browser is gone.
+        DispatchQueue.main.async { [weak self] in self?.terminateIfNoWindows() }
     }
     
     
@@ -154,7 +157,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, BrowserWindowControllerDeleg
         let windowController = BrowserWindowController(fileSystem: fileSystem)
         windowController.delegate = self
         browserWindowControllers.append(windowController)
+        windowController.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
         return windowController
+    }
+    
+    /// Soduto Files only exists to show browser windows; once none is left, quit so it leaves the Dock.
+    private func terminateIfNoWindows() {
+        if browserWindowControllers.isEmpty {
+            NSApp.terminate(nil)
+        }
+    }
+    
+    private func showConnectionError(_ error: Error, deviceName: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(format: NSLocalizedString("Couldn't browse files on %@", comment: "SFTP connection failure title"), deviceName)
+        alert.informativeText = String(format: NSLocalizedString("%@\n\nOn Android 11 and later, KDE Connect needs the “All files access” permission (in its Filesystem Expose plugin settings) to share storage.", comment: "SFTP connection failure message"), error.localizedDescription)
+        alert.runModal()
+        terminateIfNoWindows()
     }
     
     private func isWindowTabbed(_ window: NSWindow?) -> Bool {
@@ -203,7 +225,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, BrowserWindowControllerDeleg
                 } catch {
                     var urlWithoutPassword = URLComponents(url: url, resolvingAgainstBaseURL: false)
                     urlWithoutPassword?.password = nil
-                    Logger.general.error("Failed to connect to SFTP at URL [\(urlWithoutPassword?.string ?? "", privacy: .public)]: \(error.localizedDescription, privacy: .public)")
+                    Logger.general.error("Failed to connect to SFTP at URL [\(urlWithoutPassword?.string ?? "", privacy: .public)]: \(String(describing: error), privacy: .public)")
+                    self.showConnectionError(error, deviceName: name)
                 }
             }
         default:

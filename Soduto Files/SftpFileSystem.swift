@@ -56,7 +56,10 @@ private actor SftpSessionPool {
             port: port,
             authenticationMethod: .passwordBased(username: user, password: password),
             hostKeyValidator: .acceptAnything(),
-            reconnect: .never
+            reconnect: .never,
+            // KDE Connect Android's SFTP server only offers an RSA host key (ssh-rsa), which SwiftNIO SSH
+            // doesn't enable by default; `.all` adds RSA plus the matching key exchange and cipher.
+            algorithms: .all
         )
         return try await ssh.openSFTP()
     }
@@ -282,7 +285,10 @@ class SftpFileSystem: NSObject, FileSystem {
             port: port,
             authenticationMethod: .passwordBased(username: user, password: password),
             hostKeyValidator: .acceptAnything(),
-            reconnect: .never
+            reconnect: .never,
+            // KDE Connect Android's SFTP server only offers an RSA host key (ssh-rsa), which SwiftNIO SSH
+            // doesn't enable by default; `.all` adds RSA plus the matching key exchange and cipher.
+            algorithms: .all
         )
         return try await ssh.openSFTP()
     }
