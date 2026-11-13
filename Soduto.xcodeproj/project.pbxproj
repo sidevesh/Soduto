@@ -70,6 +70,7 @@
 		31711BAC2F17638000E3B9FE /* ImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31711BAB2F17638000E3B9FE /* ImageLoader.swift */; };
 		317C4DF62F8A88AD00067638 /* SystemMediaController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317C4DF52F8A88AD00067638 /* SystemMediaController.swift */; };
 		317F93092FAD451300CDC0EC /* KeyboardUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F93082FAD451300CDC0EC /* KeyboardUtils.swift */; };
+		98DC096CA0F808464310151C /* AccessibilityPermission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E0A2E8F804E0C273BB431C /* AccessibilityPermission.swift */; };
 		317F930B2FAE0EB600CDC0EC /* FindMyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F930A2FAE0EB600CDC0EC /* FindMyView.swift */; };
 		317F930D2FAE0F0600CDC0EC /* FindMyWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F930C2FAE0F0600CDC0EC /* FindMyWindowController.swift */; };
 		31864DCF293C3CE100334902 /* SharedUserDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31864DCE293C3CE100334902 /* SharedUserDefaults.swift */; };
@@ -334,6 +335,7 @@
 		31711BAB2F17638000E3B9FE /* ImageLoader.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ImageLoader.swift; sourceTree = "<group>"; };
 		317C4DF52F8A88AD00067638 /* SystemMediaController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemMediaController.swift; sourceTree = "<group>"; };
 		317F93082FAD451300CDC0EC /* KeyboardUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardUtils.swift; sourceTree = "<group>"; };
+		38E0A2E8F804E0C273BB431C /* AccessibilityPermission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityPermission.swift; sourceTree = "<group>"; };
 		317F930A2FAE0EB600CDC0EC /* FindMyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindMyView.swift; sourceTree = "<group>"; };
 		317F930C2FAE0F0600CDC0EC /* FindMyWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindMyWindowController.swift; sourceTree = "<group>"; };
 		31864DCE293C3CE100334902 /* SharedUserDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedUserDefaults.swift; sourceTree = SOURCE_ROOT; };
@@ -903,6 +905,7 @@
 				843E170C1E25851D001D0444 /* IO.h */,
 				843E170D1E25851D001D0444 /* IO.m */,
 				317F93082FAD451300CDC0EC /* KeyboardUtils.swift */,
+				38E0A2E8F804E0C273BB431C /* AccessibilityPermission.swift */,
 				3152C3F22F353AFA005152CB /* Logger+Categories.swift */,
 				8468BDFF1DEB7F97003B9925 /* NetworkUtils.swift */,
 				31965FFE2FDF29B9003A3B77 /* NotificationThreadPolicy.swift */,
@@ -1338,6 +1341,7 @@
 				31AF2B0F2F6C2F03002C7D38 /* PresenterService.swift in Sources */,
 				84FA45DD1DDDCB3D00EF3992 /* SocketAddress.swift in Sources */,
 				317F93092FAD451300CDC0EC /* KeyboardUtils.swift in Sources */,
+				98DC096CA0F808464310151C /* AccessibilityPermission.swift in Sources */,
 				31AB4B5C2F59761400FE3DD4 /* OTPExtractor.swift in Sources */,
 				31AB4B5E2F5BA6DA00FE3DD4 /* StatusBarImageProvider.swift in Sources */,
 				31332A2F2F6CCD8C0085A93A /* DeviceHeaderView.swift in Sources */,

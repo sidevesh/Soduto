@@ -27,7 +27,7 @@ import ApplicationServices
 /// On device connection, sends `kdeconnect.mousepad.keyboardstate` with `state: true`
 /// to inform the peer that keyboard input is accepted.
 ///
-/// Requires Accessibility permissions (System Settings › Privacy & Security › Accessibility)
+/// Requires the Accessibility permission (see `AccessibilityPermission` for where it lives per macOS version)
 /// to synthesise CGEvents.
 public class RemoteInputService: IncomingService {
     
@@ -340,26 +340,11 @@ public class RemoteInputService: IncomingService {
     // MARK: Accessibility permissions
     
     private func checkAndRequestAccessibilityPermissions() {
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        guard !AXIsProcessTrustedWithOptions(options) else {
+        if AccessibilityPermission.requestIfNeeded(
+            feature: "Remote Input",
+            purpose: "To let your phone act as a keyboard and touchpad for this Mac, Soduto needs permission to control it."
+        ) {
             Logger.services.info("Accessibility permissions already granted for remote input")
-            return
-        }
-        
-        Logger.services.notice("Accessibility permissions not granted for remote input — prompting user")
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "Accessibility Permissions Required"
-            alert.informativeText = "To enable remote keyboard and mouse control, Soduto needs Accessibility permissions. Please grant access in System Settings › Privacy & Security › Accessibility."
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Later")
-            if alert.runModal() == .alertFirstButtonReturn {
-                if #available(macOS 13.0, *) {
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-                } else {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Library/PreferencePanes/Security.prefPane"))
-                }
-            }
         }
     }
 }

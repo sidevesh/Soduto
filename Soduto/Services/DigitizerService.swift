@@ -34,7 +34,7 @@ import ApplicationServices
 /// will not see pressure, their approach requires private entitlements from Apple.
 /// Proximity events are emitted on tool enter/exit and tool-type changes (pen ↔ eraser).
 ///
-/// Requires Accessibility permissions (System Settings › Privacy & Security › Accessibility)
+/// Requires the Accessibility permission (see `AccessibilityPermission` for where it lives per macOS version)
 /// to synthesise CGEvents.
 public class DigitizerService: IncomingService {
     
@@ -353,22 +353,11 @@ public class DigitizerService: IncomingService {
     // MARK: Accessibility Permissions
     
     private func checkAndRequestAccessibilityPermissions() {
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        guard !AXIsProcessTrustedWithOptions(options) else {
+        if AccessibilityPermission.requestIfNeeded(
+            feature: "Drawing Tablet",
+            purpose: "To use your device as a drawing tablet for this Mac, Soduto needs permission to control it."
+        ) {
             Logger.services.info("Accessibility permissions already granted for digitizer input")
-            return
-        }
-        
-        Logger.services.notice("Accessibility permissions not granted for digitizer input. Prompting user...")
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "Accessibility Permissions Required"
-            alert.informativeText = "To enable remote drawing tablet input, Soduto needs Accessibility permissions. Please grant access in System Settings › Privacy & Security › Accessibility."
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Later")
-            if alert.runModal() == .alertFirstButtonReturn {
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-            }
         }
     }
 }

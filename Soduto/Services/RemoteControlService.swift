@@ -20,7 +20,7 @@ import os
 ///
 /// Start it with the device's **Control Device** menu action; press **Option+Escape** to exit.
 ///
-/// Requires Accessibility permissions (System Settings › Privacy & Security › Accessibility).
+/// Requires the Accessibility permission (see `AccessibilityPermission` for where it lives per macOS version).
 public class RemoteControlService: OutgoingService, ObservableObject {
     
     // MARK: ServiceBase
@@ -121,51 +121,13 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     
     // MARK: Capturing
     
-    /// Shows an accessibility permission alert if not yet granted. System notification alone is too subtle.
-    func checkAccessibilityForLock() {
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        guard !AXIsProcessTrustedWithOptions(options) else { return }
-        
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "Accessibility Permissions Required"
-            alert.informativeText = "Control Device captures all keyboard and mouse events to control the remote device. Soduto needs Accessibility permissions to do this.\n\nGrant access in System Settings › Privacy & Security › Accessibility, then choose Control Device again."
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Later")
-            if alert.runModal() == .alertFirstButtonReturn {
-                if #available(macOS 13.0, *) {
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-                } else {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Library/PreferencePanes/Security.prefPane"))
-                }
-            }
-        }
-    }
-    
-    /// Accessibility is reported as granted but the event tap still can't be created. This happens when the
-    /// permission entry belongs to an older build of the app (e.g. after rebuilding or reinstalling).
-    private func showEventTapFailureAlert() {
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "Couldn't Start Controlling the Device"
-            alert.informativeText = "macOS didn't allow Soduto to capture keyboard and mouse input, even though Accessibility access looks granted. This usually means the permission belongs to an older build of Soduto.\n\nRemove Soduto from System Settings › Privacy & Security › Accessibility, add it again, then choose Control Device again."
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Later")
-            if alert.runModal() == .alertFirstButtonReturn {
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-            }
-        }
-    }
-    
     func startCapturing(for device: Device) {
         guard !isCapturing, device.pairingStatus == .Paired else { return }
         
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        guard AXIsProcessTrustedWithOptions(options) else {
-            Logger.services.notice("Accessibility permissions not granted for remote control; prompting user...")
-            checkAccessibilityForLock()  // reuse the same visible alert
-            return
-        }
+        guard AccessibilityPermission.requestIfNeeded(
+            feature: "Control Device",
+            purpose: "Control Device sends this Mac's keyboard and mouse input to \(device.name). Soduto needs permission to capture that input."
+        ) else { return }
         
         Logger.services.info("Starting input capture for device: \(device.name, privacy: .public)")
         targetDevice = device
@@ -176,7 +138,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         guard setupEventTap() else {
             isCapturing = false
             targetDevice = nil
-            showEventTapFailureAlert()
+            AccessibilityPermission.showStaleGrantAlert(feature: "Control Device")
             return
         }
         setupEscapeMonitor()
