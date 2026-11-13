@@ -29,6 +29,9 @@ final class SMSWindowController: NSWindowController, NSWindowDelegate {
     private var localKeyMonitor: Any?
     private var hasAppearedOnce = false
     
+    /// Smallest content size at which the conversation list and the thread stay usable side by side.
+    private static let minimumContentSize = NSSize(width: 720, height: 480)
+    
     init(device: Device, smsService: SMSService, contactsService: ContactsService) {
         self.device = device
         let model = SMSDataModel(device: device, smsService: smsService, contactsService: contactsService)
@@ -41,7 +44,6 @@ final class SMSWindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.title = "Messages"  // overridden by SMSView's .navigationTitle once it mounts
-        window.minSize = NSSize(width: 600, height: 400)
         
         // Empty `NSToolbar` attached purely so `NSWindow.subtitle` (written via SwiftUI's `.navigationSubtitle` on `SMSView`) has a slot to render
         // The compose button is injected from the SwiftUI side via `.toolbar` on `ConversationListView` so it sits in the sidebar's portion of the toolbar (Apple Messages style).
@@ -58,7 +60,12 @@ final class SMSWindowController: NSWindowController, NSWindowDelegate {
         
         super.init(window: window)
         window.delegate = self
-        window.contentViewController = NSHostingController(rootView: SMSView(model: model))
+        // The hosting controller drives the window's minimum size from the SwiftUI content, which overrides
+        // `window.minSize` set above; give the content an explicit minimum so the split view can't be crushed.
+        window.contentViewController = NSHostingController(
+            rootView: SMSView(model: model).frame(minWidth: Self.minimumContentSize.width, minHeight: Self.minimumContentSize.height)
+        )
+        window.contentMinSize = Self.minimumContentSize
         
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window else { return event }

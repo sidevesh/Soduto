@@ -207,98 +207,134 @@ struct PlayerRowView: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
     
+    /// Width reserved for each side group, so the centre cluster stays centred on the wide layout.
+    private static let sideGroupWidth: CGFloat = 96
+    
     private var transportControls: some View {
-        ZStack {
-            // Center cluster
-            HStack(spacing: 20) {
-                Button { sendPrevious() } label: {
-                    Image(systemName: "backward.end.fill")
-                        .font(.system(size: 18))
-                }
-                .disabled(!player.canGoPrevious)
-                
-                Button { sendSeek(by: -10) } label: {
-                    Image(systemName: "10.arrow.trianglehead.counterclockwise")
-                        .font(.system(size: 18))
-                }
-                .disabled(!player.canSeek)
-                
-                Button { sendPlayPause() } label: {
-                    Image(systemName: effectiveIsPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 38))
-                }
-                .disabled(!player.canPlay && !player.canPause)
-                
-                Button { sendSeek(by: 10) } label: {
-                    Image(systemName: "10.arrow.trianglehead.clockwise")
-                        .font(.system(size: 18))
-                }
-                .disabled(!player.canSeek)
-                
-                Button { sendNext() } label: {
-                    Image(systemName: "forward.end.fill")
-                        .font(.system(size: 18))
-                }
-                .disabled(!player.canGoNext)
+        // Wide: side groups flank the centre cluster on one row. When that doesn't fit, the centre cluster
+        // gets its own row and the side groups move underneath, so they never overlap the play controls.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                leadingSideControls
+                    .frame(width: Self.sideGroupWidth, alignment: .leading)
+                Spacer(minLength: 0)
+                centerTransportControls
+                Spacer(minLength: 0)
+                trailingSideControls
+                    .frame(width: Self.sideGroupWidth, alignment: .trailing)
             }
             
-            // Side controls (float over center to avoid affecting its centering)
-            HStack {
-                // Left: shuffle + stop + loop (always shown; disabled when not supported)
-                HStack(spacing: 12) {
-                    Button { sendShuffle() } label: {
-                        Image(systemName: "shuffle")
-                            .font(.system(size: 14))
-                            .foregroundStyle(effectiveShuffle ? Color.accentColor : Color.secondary)
-                    }
-                    .disabled(!player.supportsShuffle)
-                    
-                    Button { sendStop() } label: {
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.secondary)
-                    }
-                    
-                    Button { sendLoop() } label: {
-                        Image(systemName: effectiveLoopStatus == "Track" ? "repeat.1" : "repeat")
-                            .font(.system(size: 14))
-                            .foregroundStyle(effectiveLoopStatus == "None" ? Color.secondary : Color.accentColor)
-                    }
-                    .disabled(!player.supportsLoopStatus)
-                }
-                
-                Spacer()
-                
-                // Right: compact volume control
-                if player.supportsVolume {
-                    HStack(spacing: 4) {
-                        Button { toggleMute() } label: {
-                            Image(systemName: volumeIcon)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 20, alignment: .leading)
-                        }
-                        .help("\(effectiveVolume)%")
-                        
-                        VolumeBar(
-                            value: Double(effectiveVolume),
-                            onChanging: { v in
-                                isDraggingVolume = true
-                                draggingVolume = v
-                            },
-                            onCommit: { v in
-                                isDraggingVolume = false
-                                isMuted = false
-                                sendVolume(Int(v))
-                            }
-                        )
-                        .frame(width: 48)
-                    }
+            VStack(spacing: 12) {
+                centerTransportControls
+                HStack {
+                    leadingSideControls
+                    Spacer(minLength: 12)
+                    trailingSideControls
                 }
             }
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
+    }
+    
+    private var centerTransportControls: some View {
+        HStack(spacing: 20) {
+            Button { sendPrevious() } label: {
+                Image(systemName: "backward.end.fill")
+                    .font(.system(size: 18))
+            }
+            .disabled(!player.canGoPrevious)
+            .help("Previous")
+            
+            Button { sendSeek(by: -10) } label: {
+                Image(systemName: "10.arrow.trianglehead.counterclockwise")
+                    .font(.system(size: 18))
+            }
+            .disabled(!player.canSeek)
+            .help("Back 10 Seconds")
+            
+            Button { sendPlayPause() } label: {
+                Image(systemName: effectiveIsPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 38))
+            }
+            .disabled(!player.canPlay && !player.canPause)
+            .help(effectiveIsPlaying ? "Pause" : "Play")
+            
+            Button { sendSeek(by: 10) } label: {
+                Image(systemName: "10.arrow.trianglehead.clockwise")
+                    .font(.system(size: 18))
+            }
+            .disabled(!player.canSeek)
+            .help("Forward 10 Seconds")
+            
+            Button { sendNext() } label: {
+                Image(systemName: "forward.end.fill")
+                    .font(.system(size: 18))
+            }
+            .disabled(!player.canGoNext)
+            .help("Next")
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+    
+    /// Shuffle, stop and repeat (always shown; disabled when the player doesn't support them)
+    private var leadingSideControls: some View {
+        HStack(spacing: 12) {
+            Button { sendShuffle() } label: {
+                Image(systemName: "shuffle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(effectiveShuffle ? Color.accentColor : Color.secondary)
+            }
+            .disabled(!player.supportsShuffle)
+            .help("Shuffle")
+            
+            Button { sendStop() } label: {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.secondary)
+            }
+            .help("Stop")
+            
+            Button { sendLoop() } label: {
+                Image(systemName: effectiveLoopStatus == "Track" ? "repeat.1" : "repeat")
+                    .font(.system(size: 14))
+                    .foregroundStyle(effectiveLoopStatus == "None" ? Color.secondary : Color.accentColor)
+            }
+            .disabled(!player.supportsLoopStatus)
+            .help("Repeat")
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+    
+    /// Compact volume control, when the player reports a volume
+    @ViewBuilder
+    private var trailingSideControls: some View {
+        if player.supportsVolume {
+            HStack(spacing: 4) {
+                Button { toggleMute() } label: {
+                    Image(systemName: volumeIcon)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, alignment: .leading)
+                }
+                .help("\(effectiveVolume)%")
+                
+                VolumeBar(
+                    value: Double(effectiveVolume),
+                    onChanging: { v in
+                        isDraggingVolume = true
+                        draggingVolume = v
+                    },
+                    onCommit: { v in
+                        isDraggingVolume = false
+                        isMuted = false
+                        sendVolume(Int(v))
+                    }
+                )
+                .frame(width: 48)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
     }
     
     private var seekBar: some View {

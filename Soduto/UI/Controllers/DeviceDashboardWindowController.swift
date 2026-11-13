@@ -16,6 +16,9 @@ final class DeviceDashboardWindowController: NSWindowController, NSWindowDelegat
     private var titleCancellable: AnyCancellable?
     private var localKeyMonitor: Any?
     
+    /// Smallest content size at which the sidebar and the player controls fit without crowding.
+    private static let minimumContentSize = NSSize(width: 680, height: 460)
+    
     init(deviceDataSource: DeviceDataSource,
          mediaPlayerService: MediaPlayerService?,
          batteryService: BatteryService?,
@@ -35,15 +38,18 @@ final class DeviceDashboardWindowController: NSWindowController, NSWindowDelegat
             defer: false
         )
         window.title = "No Devices"
-        window.minSize = NSSize(width: 560, height: 360)
         window.setFrameAutosaveName("DeviceDashboard")
         window.center()
         
         super.init(window: window)
         window.delegate = self
         
+        // The hosting controller drives the window's minimum size from the SwiftUI content (overriding
+        // `window.minSize`), so the minimum is set on the content and mirrored to the window.
         let rootView = DeviceDashboardView(model: model)
+            .frame(minWidth: Self.minimumContentSize.width, minHeight: Self.minimumContentSize.height)
         window.contentViewController = NSHostingController(rootView: rootView)
+        window.contentMinSize = Self.minimumContentSize
         
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window,
