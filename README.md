@@ -21,6 +21,7 @@
   - [Quality of Life](#quality-of-life)
   - [Not on this branch](#not-on-this-branch)
 - [Building](#building)
+  - [CI builds (GitHub Actions)](#ci-builds-github-actions)
 - [Debugging](#debugging)
 - [Verifying Downloads](#verifying-downloads)
   - [Signing Identity](#-signing-identity)
@@ -187,6 +188,21 @@ This branch is meant to be fully testable against the stock KDE Connect Android 
 
 > [!IMPORTANT]
 > **Do not** set the Team in Signing & Capabilities, that would write your Team ID into `project.pbxproj`, dirtying the project file with personal development team identifiers. The `LocalConfig.xcconfig` approach keeps `project.pbxproj` clean for everyone.
+
+### CI builds (GitHub Actions)
+
+The [`Build DMG`](.github/workflows/build-dmg.yml) workflow builds an installable `.dmg` on a GitHub-hosted Mac (Xcode 26) for every push, pull request and `v*` tag, and on demand from the repository's **Actions** tab (**Build DMG → Run workflow**). On a fork, enable workflows once in the Actions tab first.
+
+- Download the DMG from the run's **Artifacts** section (GitHub delivers it zipped). For a `v*` tag it is also attached to a pre-release.
+- The app is **signed ad hoc** (no Apple Developer certificate in CI) and not notarized. After dragging it to Applications, clear the quarantine flag once:
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/Soduto.app
+  ```
+  or open it and use `System Settings → Privacy & Security → Open Anyway`.
+- Each CI build has a new ad-hoc signature, so macOS treats it as a different app for privacy permissions: after installing a new build, re-grant **Accessibility** (needed by Control Device) by removing Soduto from the list and adding it again, and expect a one-time keychain prompt for Soduto's pairing identity (choose **Always Allow**).
+- The default bundle identifier `com.soduto.Soduto` replaces an existing Soduto install and keeps its pairings; a different one can be entered when running the workflow manually.
+- Without a Team ID the app group has no team prefix, so the Share extension can't hand files to the main app in CI builds; drag-and-drop to the menu bar icon and `Send Files` still work.
+- Automatic Sparkle update checks are turned off in CI builds, because the feed in `Info.plist` belongs to the upstream fork and would offer to replace this build with its release.
 
 ---
 ## Debugging

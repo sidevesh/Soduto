@@ -1,0 +1,165 @@
+# Builds an installable Soduto.dmg on a GitHub-hosted Mac.
+#
+# The app is signed ad hoc ("Sign to Run Locally"): there is no Apple Developer certificate in CI, so the
+# build is not notarized. After installing, clear the quarantine flag once (see the README) or use
+# System Settings › Privacy & Security › Open Anyway.
+#
+# Triggers: every push, pull requests, version tags (v*), and manually from the Actions tab.
+# The DMG is uploaded as a workflow artifact; for a v* tag it is also attached to a GitHub release.
+
+name: Build DMG
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      bundle_id:
+        description: Bundle identifier for the app (keep the default to replace an existing Soduto install and keep its pairings)
+        required: false
+        default: com.soduto.Soduto
+
+permissions:
+  contents: write  # attach the DMG to a release for v* tags
+
+concurrency:
+  group: build-dmg-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and package
+    # The project uses an Icon Composer `.icon` app icon, which needs Xcode 26
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      BUNDLE_ID: ${{ inputs.bundle_id || 'com.soduto.Soduto' }}
+      DERIVED_DATA: ${{ github.workspace }}/build
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so `git describe` can name the build
+
+      - name: Select Xcode 26
+        run: |
+          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$XCODE_APP" ]; then XCODE_APP=/Applications/Xcode.app; fi
+          sudo xcode-select --switch "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+
+      - name: Write local build configuration
+        run: |
+          # Config.xcconfig includes the untracked LocalConfig.xcconfig, which supplies BUNDLE_ID and
+          # DEVELOPMENT_TEAM. CI has no team: the app is signed ad hoc below.
+          cat > LocalConfig.xcconfig <<EOF
+          DEVELOPMENT_TEAM =
+          BUNDLE_ID = $BUNDLE_ID
+          EOF
+          cat LocalConfig.xcconfig
+
+          # Sparkle's feed (SUFeedURL) is the upstream fork's appcast. Don't let this build check it
+          # automatically and offer to replace itself with that fork's release.
+          plutil -replace SUEnableAutomaticChecks -bool NO Soduto/Info.plist
+
+      - name: Name the build
+        id: version
+        run: |
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || git rev-parse --short HEAD)
+          SAFE_REF=$(echo "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" | tr '/' '-' | tr -cd '[:alnum:]._-')
+          echo "dmg_name=Soduto-${SAFE_REF}-${VERSION}.dmg" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=Soduto-${SAFE_REF}-${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.DERIVED_DATA }}/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('Soduto.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Soduto.xcodeproj \
+            -scheme Soduto \
+            -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
+
+      - name: Build (Release, ad-hoc signed)
+        run: |
+          set -o pipefail
+          # Ad-hoc signing keeps the entitlements (sandbox, app group, network), which the Share
+          # extension needs to load. Hardened runtime is only required for notarization and is turned
+          # off so ad-hoc signed frameworks pass library validation.
+          xcodebuild build \
+            -project Soduto.xcodeproj \
+            -scheme Soduto \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            "CODE_SIGN_IDENTITY[sdk=macosx*]=-" \
+            DEVELOPMENT_TEAM= \
+            PROVISIONING_PROFILE_SPECIFIER= \
+            ENABLE_HARDENED_RUNTIME=NO \
+            2>&1 | tee xcodebuild.log | grep -E 'error:|warning: .*(entitlement|sign)|\*\* BUILD' || true
+          grep -q '\*\* BUILD SUCCEEDED \*\*' xcodebuild.log
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Inspect the app
+        run: |
+          APP="$DERIVED_DATA/Build/Products/Release/Soduto.app"
+          test -d "$APP"
+          echo "Bundle id: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")"
+          echo "Version:   $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist") ($(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist"))"
+          lipo -archs "$APP/Contents/MacOS/Soduto"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign --display --entitlements - "$APP"
+
+      - name: Create DMG
+        run: |
+          APP="$DERIVED_DATA/Build/Products/Release/Soduto.app"
+          STAGING=$(mktemp -d)
+          ditto "$APP" "$STAGING/Soduto.app"
+          ln -s /Applications "$STAGING/Applications"
+          hdiutil create \
+            -volname Soduto \
+            -srcfolder "$STAGING" \
+            -fs HFS+ \
+            -format UDZO \
+            -ov \
+            "${{ steps.version.outputs.dmg_name }}"
+          hdiutil verify "${{ steps.version.outputs.dmg_name }}"
+          shasum -a 256 "${{ steps.version.outputs.dmg_name }}" | tee "${{ steps.version.outputs.dmg_name }}.sha256"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.artifact_name }}
+          path: |
+            ${{ steps.version.outputs.dmg_name }}
+            ${{ steps.version.outputs.dmg_name }}.sha256
+          if-no-files-found: error
+
+      - name: Attach DMG to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.version.outputs.dmg_name }}
+            ${{ steps.version.outputs.dmg_name }}.sha256
+          prerelease: true
+          generate_release_notes: true
