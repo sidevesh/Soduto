@@ -101,6 +101,22 @@ enum AppDefaultsStore {
             set { UserDefaults.standard.set(newValue, forKey: deviceTypeKey) }
         }
         
+        // MARK: Edge Control
+        
+        /// Hand the keyboard and mouse to a device by pushing the pointer past an edge of the main display
+        enum EdgeControl {
+            fileprivate static let base = "\(Preferences.base).edgecontrol"
+            static let enabledKey = "\(base).enabled"
+            /// `ScreenEdge.rawValue`; defaults to "right"
+            static let edgeKey = "\(base).edge"
+            /// Paired device to control; empty means "the connected device that supports it"
+            static let deviceIdKey = "\(base).deviceId"
+            
+            static var isEnabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
+            static var edge: String { UserDefaults.standard.string(forKey: edgeKey) ?? "right" }
+            static var deviceId: String { UserDefaults.standard.string(forKey: deviceIdKey) ?? "" }
+        }
+        
         // MARK: Menu Bar
         
         /// What the menu bar icon shows while exactly one device is connected (otherwise the Soduto icon)

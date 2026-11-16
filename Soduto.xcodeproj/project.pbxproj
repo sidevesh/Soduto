@@ -72,6 +72,7 @@
 		31711BAC2F17638000E3B9FE /* ImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31711BAB2F17638000E3B9FE /* ImageLoader.swift */; };
 		317C4DF62F8A88AD00067638 /* SystemMediaController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317C4DF52F8A88AD00067638 /* SystemMediaController.swift */; };
 		317F93092FAD451300CDC0EC /* KeyboardUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F93082FAD451300CDC0EC /* KeyboardUtils.swift */; };
+		D9ABE4EDD32A45D4332C0E99 /* WindowServerPrivate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8E73E288D41CC00C217D37A /* WindowServerPrivate.swift */; };
 		98DC096CA0F808464310151C /* AccessibilityPermission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E0A2E8F804E0C273BB431C /* AccessibilityPermission.swift */; };
 		317F930B2FAE0EB600CDC0EC /* FindMyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F930A2FAE0EB600CDC0EC /* FindMyView.swift */; };
 		317F930D2FAE0F0600CDC0EC /* FindMyWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317F930C2FAE0F0600CDC0EC /* FindMyWindowController.swift */; };
@@ -94,6 +95,7 @@
 		31A4219A2F43B8C2003B97FC /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31A421962F43B8C2003B97FC /* Connection.swift */; };
 		31A4219B2F43B8C2003B97FC /* DownloadTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31A421972F43B8C2003B97FC /* DownloadTask.swift */; };
 		31AB4B5A2F5975E000FE3DD4 /* HUDToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31AB4B592F5975E000FE3DD4 /* HUDToast.swift */; };
+		8317201B941613AE74A2AF42 /* ControlOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4063A2191C9C3EA28241EBCB /* ControlOverlay.swift */; };
 		31AB4B5C2F59761400FE3DD4 /* OTPExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31AB4B5B2F59761400FE3DD4 /* OTPExtractor.swift */; };
 		31AB4B5E2F5BA6DA00FE3DD4 /* StatusBarImageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31AB4B5D2F5BA6D900FE3DD4 /* StatusBarImageProvider.swift */; };
 		31AB4B642F5C4BA700FE3DD4 /* TransferProgressHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31AB4B632F5C4BA700FE3DD4 /* TransferProgressHUD.swift */; };
@@ -197,6 +199,7 @@
 		84FFDA2A1E1D8D370069AC9A /* SimplePing.m in Sources */ = {isa = PBXBuildFile; fileRef = 84FFDA291E1D8D370069AC9A /* SimplePing.m */; };
 		8FC977F11D4778E9001ADF7E /* StatusBarMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FC977F01D4778E9001ADF7E /* StatusBarMenuController.swift */; };
 		F80E30722DBE0D880047D068 /* RemoteControlService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80E30712DBE0D880047D068 /* RemoteControlService.swift */; };
+		9E95A63A661BF999AA1E0587 /* ScreenEdgeTrigger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D409AA90C2CE0FECFA2693 /* ScreenEdgeTrigger.swift */; };
 		F826E6C72DB302F000E736CE /* RunCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F826E6C62DB302F000E736CE /* RunCommandService.swift */; };
 		F826E6C92DB419AF00E736CE /* RunCommandsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F826E6C82DB419AF00E736CE /* RunCommandsWindowController.swift */; };
 		F8B2BB242DAFC87B00FFA284 /* ConnectivityReportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8B2BB232DAFC87B00FFA284 /* ConnectivityReportService.swift */; };
@@ -339,6 +342,7 @@
 		31711BAB2F17638000E3B9FE /* ImageLoader.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ImageLoader.swift; sourceTree = "<group>"; };
 		317C4DF52F8A88AD00067638 /* SystemMediaController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemMediaController.swift; sourceTree = "<group>"; };
 		317F93082FAD451300CDC0EC /* KeyboardUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardUtils.swift; sourceTree = "<group>"; };
+		D8E73E288D41CC00C217D37A /* WindowServerPrivate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowServerPrivate.swift; sourceTree = "<group>"; };
 		38E0A2E8F804E0C273BB431C /* AccessibilityPermission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityPermission.swift; sourceTree = "<group>"; };
 		317F930A2FAE0EB600CDC0EC /* FindMyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindMyView.swift; sourceTree = "<group>"; };
 		317F930C2FAE0F0600CDC0EC /* FindMyWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindMyWindowController.swift; sourceTree = "<group>"; };
@@ -357,6 +361,7 @@
 		31A421972F43B8C2003B97FC /* DownloadTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadTask.swift; sourceTree = "<group>"; };
 		31A421982F43B8C2003B97FC /* UploadTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadTask.swift; sourceTree = "<group>"; };
 		31AB4B592F5975E000FE3DD4 /* HUDToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDToast.swift; sourceTree = "<group>"; };
+		4063A2191C9C3EA28241EBCB /* ControlOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlOverlay.swift; sourceTree = "<group>"; };
 		31AB4B5B2F59761400FE3DD4 /* OTPExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OTPExtractor.swift; sourceTree = "<group>"; };
 		31AB4B5D2F5BA6D900FE3DD4 /* StatusBarImageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarImageProvider.swift; sourceTree = "<group>"; };
 		31AB4B632F5C4BA700FE3DD4 /* TransferProgressHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferProgressHUD.swift; sourceTree = "<group>"; };
@@ -475,6 +480,7 @@
 		84FFDA291E1D8D370069AC9A /* SimplePing.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = SimplePing.m; sourceTree = "<group>"; };
 		8FC977F01D4778E9001ADF7E /* StatusBarMenuController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = StatusBarMenuController.swift; sourceTree = "<group>"; };
 		F80E30712DBE0D880047D068 /* RemoteControlService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlService.swift; sourceTree = "<group>"; };
+		83D409AA90C2CE0FECFA2693 /* ScreenEdgeTrigger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenEdgeTrigger.swift; sourceTree = "<group>"; };
 		F826E6C62DB302F000E736CE /* RunCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunCommandService.swift; sourceTree = "<group>"; };
 		F826E6C82DB419AF00E736CE /* RunCommandsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunCommandsWindowController.swift; sourceTree = "<group>"; };
 		F8B2BB232DAFC87B00FFA284 /* ConnectivityReportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityReportService.swift; sourceTree = "<group>"; };
@@ -682,6 +688,7 @@
 				8492379C1DE1C55900D95BBA /* DeviceMenu.swift */,
 				317F930A2FAE0EB600CDC0EC /* FindMyView.swift */,
 				31AB4B592F5975E000FE3DD4 /* HUDToast.swift */,
+				4063A2191C9C3EA28241EBCB /* ControlOverlay.swift */,
 				84651A731E59F9C900D17601 /* MenuView.swift */,
 				31F8A6032F4A53DC00CA5A61 /* PairingView.swift */,
 				3160AB8C2FB14C1100DE1870 /* RunCommandsView.swift */,
@@ -911,6 +918,7 @@
 				843E170C1E25851D001D0444 /* IO.h */,
 				843E170D1E25851D001D0444 /* IO.m */,
 				317F93082FAD451300CDC0EC /* KeyboardUtils.swift */,
+				D8E73E288D41CC00C217D37A /* WindowServerPrivate.swift */,
 				38E0A2E8F804E0C273BB431C /* AccessibilityPermission.swift */,
 				3152C3F22F353AFA005152CB /* Logger+Categories.swift */,
 				8468BDFF1DEB7F97003B9925 /* NetworkUtils.swift */,
@@ -966,6 +974,7 @@
 				84FA45EC1DDF525200EF3992 /* PingService.swift */,
 				31AF2B0E2F6C2F03002C7D38 /* PresenterService.swift */,
 				F80E30712DBE0D880047D068 /* RemoteControlService.swift */,
+				83D409AA90C2CE0FECFA2693 /* ScreenEdgeTrigger.swift */,
 				842505E81ED1BD3C00AEE25F /* RemoteInputService.swift */,
 				F826E6C62DB302F000E736CE /* RunCommandService.swift */,
 				84651A751E5AEBE100D17601 /* SftpService.swift */,
@@ -1251,6 +1260,7 @@
 				311BC2912F28697500E4A33F /* UNMutableNotificationContent+Urgency.swift in Sources */,
 				3116838A2FB9867700B1AEF8 /* ConversationDetailView.swift in Sources */,
 				F80E30722DBE0D880047D068 /* RemoteControlService.swift in Sources */,
+				9E95A63A661BF999AA1E0587 /* ScreenEdgeTrigger.swift in Sources */,
 				84FA45E81DDE088B00EF3992 /* ServiceManager.swift in Sources */,
 				31332A292F6CCD4B0085A93A /* DeviceDashboardView.swift in Sources */,
 				31332A262F6CCD050085A93A /* DeviceDashboardWindowController.swift in Sources */,
@@ -1342,6 +1352,7 @@
 				31332A382F6CCE690085A93A /* DeviceDashboardModel.swift in Sources */,
 				8436DEF81E956DA000529362 /* Timer.swift in Sources */,
 				31AB4B5A2F5975E000FE3DD4 /* HUDToast.swift in Sources */,
+				8317201B941613AE74A2AF42 /* ControlOverlay.swift in Sources */,
 				842B50571E4295D200969AA7 /* UnifiedTitlebarWindow.swift in Sources */,
 				843E170E1E25851D001D0444 /* IO.m in Sources */,
 				8468BE001DEB7F97003B9925 /* NetworkUtils.swift in Sources */,
@@ -1349,6 +1360,7 @@
 				31AF2B0F2F6C2F03002C7D38 /* PresenterService.swift in Sources */,
 				84FA45DD1DDDCB3D00EF3992 /* SocketAddress.swift in Sources */,
 				317F93092FAD451300CDC0EC /* KeyboardUtils.swift in Sources */,
+				D9ABE4EDD32A45D4332C0E99 /* WindowServerPrivate.swift in Sources */,
 				98DC096CA0F808464310151C /* AccessibilityPermission.swift in Sources */,
 				31AB4B5C2F59761400FE3DD4 /* OTPExtractor.swift in Sources */,
 				31AB4B5E2F5BA6DA00FE3DD4 /* StatusBarImageProvider.swift in Sources */,

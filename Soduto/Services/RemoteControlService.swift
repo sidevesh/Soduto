@@ -12,13 +12,20 @@ import os
 
 /// Service for sending keyboard and mouse input from this Mac to a remote device.
 ///
-/// Implements the outgoing side of the `kdeconnect.mousepad` protocol. When capturing is
-/// active, all Mac keyboard and mouse events are intercepted via a CGEvent tap and forwarded
-/// as `kdeconnect.mousepad.request` packets to the paired target device. The Mac cursor is
-/// hidden and locked to the screen center so the physical pointer stays out of the way, and a
-/// floating overlay shows which device is being controlled and how to exit.
+/// Implements the outgoing side of the `kdeconnect.mousepad` protocol. While capturing, every Mac keyboard,
+/// mouse and trackpad event is intercepted by a CGEvent tap and forwarded as `kdeconnect.mousepad.request`
+/// packets. Like other input-sharing apps, capture also:
+/// - detaches the cursor from the mouse (`CGAssociateMouseAndMouseCursorPosition`) and hides it, so the
+///   Mac pointer neither shows nor moves (including during drags)
+/// - swallows trackpad gesture events (Mission Control / Spaces swipes, pinch, rotate)
+/// - pauses system keyboard shortcuts (⌘Tab, Mission Control, Spotlight…), which WindowServer would
+///   otherwise handle before the tap sees them, so they reach the device instead
 ///
-/// Start it with the device's **Control Device** menu action; press **Option+Escape** to exit.
+/// Two ways in, sharing one capture session so they can't conflict:
+/// - **Control Device** (menu action): manual mode, until ⌥⎋
+/// - **Screen edge** (`kdeconnect.shareinputdevices`, when enabled in Settings): pushing the pointer past
+///   the configured edge hands control over; the device hands it back (`releaseDelta…`) when its pointer
+///   leaves through the same edge. ⌥⎋ works here too.
 ///
 /// Requires the Accessibility permission (see `AccessibilityPermission` for where it lives per macOS version).
 public class RemoteControlService: OutgoingService, ObservableObject {
@@ -28,34 +35,50 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     public var userDefaults: UserDefaults = .standard
     public let outgoingPreferenceKey = AppDefaultsStore.Preferences.Services.RemoteControl.outgoingKey
     
+    // MARK: Types
+    
+    enum CaptureMode: Equatable {
+        /// Started from the menu; ends with ⌥⎋
+        case manual
+        /// Started by pushing past `edge`; ends when the device hands control back, or with ⌥⎋
+        case edge(ScreenEdge)
+    }
+    
     // MARK: Properties
     
     public static let serviceId: Service.Id = "com.soduto.services.remotecontrol"
     
     public let incomingCapabilities = Set<Service.Capability>([
-        DataPacket.mousePadKeyboardStatePacketType
+        DataPacket.mousePadKeyboardStatePacketType,
+        DataPacket.shareInputDevicesPacketType
     ])
     public var outgoingCapabilities: Set<Service.Capability> {
-        outgoingEnabled ? [DataPacket.mousePadRequestPacketType] : []
+        outgoingEnabled ? [DataPacket.mousePadRequestPacketType, DataPacket.shareInputDevicesRequestPacketType] : []
     }
     
     @Published public private(set) var isCapturing = false
+    private(set) var captureMode: CaptureMode?
     
     /// Last `kdeconnect.mousepad.keyboardstate` reported per device: whether it can receive typed keys
     /// (KDE Connect Android needs its "Keyboard receiver (via accessibility)" or Remote Keyboard enabled).
     private var remoteKeyboardStates: [Device.Id: Bool] = [:]
     
-    /// Overlay shown while capturing, naming the target device and the exit shortcut.
-    private var hudPanel: NSPanel?
+    /// Paired, reachable devices, for picking the screen-edge target
+    private var connectedDevices: [Device.Id: Device] = [:]
+    
+    private let overlay = ControlOverlay()
+    private let edgeTrigger = ScreenEdgeTrigger()
+    private var defaultsObserver: NSObjectProtocol?
+    private var terminateObserver: NSObjectProtocol?
     
     private var targetDevice: Device?
     private var eventTap: CFMachPort?
     private var eventRunLoopSource: CFRunLoopSource?
     private var optionKeyPressed = false
     private var isDragging = false
-    private var originalMouseLocation: NSPoint?
-    private var invisibleCursor: NSCursor?
     private var escapeMonitor: Any?
+    private var isCursorHidden = false
+    private var areSystemShortcutsPaused = false
     
     /// Exposes the connected device type to the CGEvent tap callback (which has no `self`).
     var targetDeviceType: DeviceType? { targetDevice?.type }
@@ -65,24 +88,68 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     private var lockScrollAccumDy: Double = 0
     private var lockScrollStart: Date?
     
+    /// Trackpad gesture event types (NSEvent.EventType raw values), swallowed while capturing so Mission
+    /// Control, Spaces swipes, Launchpad pinch, Look Up etc. don't act on the Mac. Several of these have no
+    /// public `CGEventType` case, hence raw values.
+    fileprivate static let gestureEventTypes: [UInt32] = [
+        18, // rotate
+        19, // beginGesture
+        20, // endGesture
+        29, // gesture (includes the Dock's Mission Control / Spaces swipe tracking)
+        30, // magnify
+        31, // swipe
+        32, // smartMagnify
+        33, // quickLook
+        34  // pressure (Force Touch)
+    ]
+    
+    
+    // MARK: Init
+    
+    public init() {
+        edgeTrigger.onTrigger = { [weak self] edge, along in
+            self?.edgeTriggered(edge: edge, along: along)
+        }
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.updateEdgeTrigger()
+        }
+        // Never leave the cursor hidden or shortcuts paused behind
+        terminateObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.stopCapturing()
+        }
+    }
+    
     
     // MARK: Service
     
     public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
-        guard dataPacket.isMousePadKeyboardStatePacket else { return false }
-        if let state = dataPacket.body["state"] as? NSNumber {
-            remoteKeyboardStates[device.id] = state.boolValue
+        switch dataPacket.type {
+        case DataPacket.mousePadKeyboardStatePacketType:
+            if let state = dataPacket.body["state"] as? NSNumber {
+                remoteKeyboardStates[device.id] = state.boolValue
+            }
+            return true
+        case DataPacket.shareInputDevicesPacketType:
+            handleControlReleased(dataPacket, from: device)
+            return true
+        default:
+            return false
         }
-        return true
     }
     
-    public func setup(for device: Device) {}
+    public func setup(for device: Device) {
+        guard device.pairingStatus == .Paired else { return }
+        connectedDevices[device.id] = device
+        updateEdgeTrigger()
+    }
     
     public func cleanup(for device: Device) {
         remoteKeyboardStates.removeValue(forKey: device.id)
+        connectedDevices.removeValue(forKey: device.id)
         if targetDevice?.id == device.id {
             stopCapturing()
         }
+        updateEdgeTrigger()
     }
     
     
@@ -110,7 +177,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     public func performAction(_ id: ServiceAction.Id, forDevice device: Device, userInfo: [String: Any]?) {
         switch id {
         case ActionId.startInputCapturing.rawValue:
-            startCapturing(for: device)
+            startCapturing(for: device, mode: .manual)
         case ActionId.stopInputCapturing.rawValue:
             stopCapturing()
         default:
@@ -119,31 +186,113 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     }
     
     
+    // MARK: Screen edge
+    
+    /// Whether a device supports the screen-edge handover (needs KDE Connect's "Input devices receiver")
+    static func supportsEdgeControl(_ device: Device) -> Bool {
+        device.incomingCapabilities.contains(DataPacket.shareInputDevicesRequestPacketType)
+    }
+    
+    /// The device the screen edge hands control to: the one chosen in Settings, or else the only
+    /// connected device that supports it
+    var edgeTargetDevice: Device? {
+        let chosenId = AppDefaultsStore.Preferences.EdgeControl.deviceId
+        let candidates = connectedDevices.values.filter { $0.isReachable && Self.supportsEdgeControl($0) }
+        if !chosenId.isEmpty {
+            return candidates.first { $0.id == chosenId }
+        }
+        return candidates.count == 1 ? candidates.first : nil
+    }
+    
+    /// Runs the edge watcher only while edge control is on and its device is connected (and not while capturing)
+    private func updateEdgeTrigger() {
+        let prefs = AppDefaultsStore.Preferences.EdgeControl.self
+        guard outgoingEnabled, prefs.isEnabled, !isCapturing, edgeTargetDevice != nil,
+              let edge = ScreenEdge(rawValue: prefs.edge) else {
+            edgeTrigger.stop()
+            return
+        }
+        edgeTrigger.start(edge: edge)
+    }
+    
+    private func edgeTriggered(edge: ScreenEdge, along: CGFloat) {
+        guard !isCapturing, let device = edgeTargetDevice else { return }
+        Logger.services.info("Pointer pushed past the \(edge.rawValue, privacy: .public) edge; handing control to \(device.name, privacy: .public)")
+        guard startCapturing(for: device, mode: .edge(edge)) else { return }
+        // Tell the device where the pointer left this Mac; it places its pointer at the matching edge
+        let position = Int(along.rounded())
+        device.send(DataPacket(type: DataPacket.shareInputDevicesRequestPacketType, body: [
+            "exitEdge": edge.qtEdge as NSNumber,
+            "deltax": position as NSNumber,
+            "deltay": position as NSNumber
+        ]))
+    }
+    
+    /// The device's pointer left through the edge it entered from: give the keyboard and mouse back and
+    /// put the Mac pointer where it crossed
+    private func handleControlReleased(_ packet: DataPacket, from device: Device) {
+        guard case .edge(let edge) = captureMode, targetDevice?.id == device.id else { return }
+        let releaseX = (packet.body["releaseDeltax"] as? NSNumber)?.doubleValue ?? 0
+        let releaseY = (packet.body["releaseDeltay"] as? NSNumber)?.doubleValue ?? 0
+        stopCapturing()
+        placePointer(at: edge, along: CGFloat(edge == .left || edge == .right ? releaseY : releaseX))
+        edgeTrigger.disarmUntilPointerLeavesEdge()
+    }
+    
+    /// Warps the pointer just inside `edge` of the main display, `along` points from its top/left
+    private func placePointer(at edge: ScreenEdge, along: CGFloat) {
+        let bounds = CGDisplayBounds(CGMainDisplayID())  // global coordinates, origin top-left
+        let inset: CGFloat = 2
+        let point: CGPoint
+        switch edge {
+        case .left:
+            point = CGPoint(x: bounds.minX + inset, y: bounds.minY + min(max(along, 0), bounds.height - 1))
+        case .right:
+            point = CGPoint(x: bounds.maxX - 1 - inset, y: bounds.minY + min(max(along, 0), bounds.height - 1))
+        case .top:
+            point = CGPoint(x: bounds.minX + min(max(along, 0), bounds.width - 1), y: bounds.minY + inset)
+        case .bottom:
+            point = CGPoint(x: bounds.minX + min(max(along, 0), bounds.width - 1), y: bounds.maxY - 1 - inset)
+        }
+        CGWarpMouseCursorPosition(point)
+    }
+    
+    
     // MARK: Capturing
     
-    func startCapturing(for device: Device) {
-        guard !isCapturing, device.pairingStatus == .Paired else { return }
+    /// Starts capturing for `device`. Ignored (returns false) while a capture is already running, so the
+    /// menu action and the screen edge can't start overlapping sessions.
+    @discardableResult
+    func startCapturing(for device: Device, mode: CaptureMode) -> Bool {
+        guard !isCapturing, device.pairingStatus == .Paired else { return false }
         
         guard AccessibilityPermission.requestIfNeeded(
             feature: "Control Device",
-            purpose: "Control Device sends this Mac's keyboard and mouse input to \(device.name). Soduto needs permission to capture that input."
-        ) else { return }
+            purpose: "Soduto sends this Mac's keyboard and mouse input to \(device.name). It needs permission to capture that input."
+        ) else { return false }
         
         Logger.services.info("Starting input capture for device: \(device.name, privacy: .public)")
         targetDevice = device
+        captureMode = mode
         isCapturing = true
         isDragging = false
+        optionKeyPressed = false
+        edgeTrigger.stop()
         
         // Without the tap nothing is forwarded and Option+Escape can't be caught, so never hide the cursor then
         guard setupEventTap() else {
             isCapturing = false
+            captureMode = nil
             targetDevice = nil
             AccessibilityPermission.showStaleGrantAlert(feature: "Control Device")
-            return
+            updateEdgeTrigger()
+            return false
         }
         setupEscapeMonitor()
-        hideCursorAndCenterOnScreen()
-        showHUD(for: device)
+        detachAndHideCursor()
+        areSystemShortcutsPaused = WindowServerPrivate.setSystemShortcutsEnabled(false)
+        showOverlay(for: device, mode: mode)
+        return true
     }
     
     func stopCapturing() {
@@ -161,119 +310,58 @@ public class RemoteControlService: OutgoingService, ObservableObject {
             isDragging = false
         }
         targetDevice = nil
+        captureMode = nil
         
         removeEventTap()
         removeEscapeMonitor()
-        showCursorAndRestorePosition()
-        hideHUD()
+        if areSystemShortcutsPaused {
+            WindowServerPrivate.setSystemShortcutsEnabled(true)
+            areSystemShortcutsPaused = false
+        }
+        reattachAndShowCursor()
+        overlay.hide()
+        
+        // Stopping with ⌥⎋ leaves the pointer wherever it was; at the trigger edge, that must not hand
+        // control straight back (restart the watcher first: starting it re-arms it)
+        updateEdgeTrigger()
+        edgeTrigger.disarmUntilPointerLeavesEdge()
         
         Logger.services.info("Input capture stopped")
     }
     
-    
-    // MARK: Overlay
-    
-    private func showHUD(for device: Device) {
-        hideHUD()
-        
-        var lines: [(text: String, font: NSFont)] = [
-            ("Controlling Remote Device", .boldSystemFont(ofSize: 16)),
-            (device.name, .systemFont(ofSize: 14)),
-            ("Press ⌥ Option + Esc to stop", .systemFont(ofSize: 12))
-        ]
-        if remoteKeyboardStates[device.id] == false {
-            lines.append(("Typing needs the keyboard receiver enabled on the device", .systemFont(ofSize: 11)))
+    private func showOverlay(for device: Device, mode: CaptureMode) {
+        let hint: String
+        switch mode {
+        case .manual:
+            hint = "Press ⌥⎋ to return to this Mac"
+        case .edge(let edge):
+            hint = "Move back past the \(edge.title.lowercased()) edge, or press ⌥⎋"
         }
-        
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .centerX
-        stack.spacing = 6
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 24, bottom: 16, right: 24)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        for line in lines {
-            let label = NSTextField(labelWithString: line.text)
-            label.font = line.font
-            label.textColor = .white
-            label.alignment = .center
-            stack.addArrangedSubview(label)
-        }
-        
-        let effectView = NSVisualEffectView()
-        effectView.material = .hudWindow
-        effectView.blendingMode = .behindWindow
-        effectView.state = .active
-        effectView.wantsLayer = true
-        effectView.layer?.cornerRadius = 12
-        effectView.layer?.masksToBounds = true
-        effectView.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: effectView.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: effectView.bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: effectView.trailingAnchor)
-        ])
-        
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 100),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false)
-        panel.level = .floating
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = true
-        panel.ignoresMouseEvents = true
-        panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.appearance = NSAppearance(named: .vibrantDark)
-        panel.contentView = effectView
-        panel.setContentSize(stack.fittingSize)
-        
-        // Top-center of the screen the cursor is locked to
-        if let screen = NSScreen.main {
-            let frame = screen.visibleFrame
-            let size = panel.frame.size
-            panel.setFrameOrigin(NSPoint(x: frame.midX - size.width / 2, y: frame.maxY - size.height - 40))
-        }
-        
-        panel.orderFrontRegardless()
-        hudPanel = panel
-    }
-    
-    private func hideHUD() {
-        guard let panel = hudPanel else { return }
-        // Order out instead of close(): closing a borderless panel we still reference can over-release it
-        panel.orderOut(nil)
-        panel.contentView = nil
-        hudPanel = nil
+        let note = remoteKeyboardStates[device.id] == false
+            ? "Typing needs KDE Connect’s keyboard receiver turned on"
+            : nil
+        overlay.show(deviceName: device.name, symbolName: device.type.sfSymbolName, hint: hint, note: note)
     }
     
     
     // MARK: Cursor management
     
-    private func hideCursorAndCenterOnScreen() {
-        originalMouseLocation = NSEvent.mouseLocation
-        
-        let blankImage = NSImage(size: NSSize(width: 1, height: 1))
-        invisibleCursor = NSCursor(image: blankImage, hotSpot: .zero)
-        NSCursor.hide()
-        invisibleCursor?.push()
-        
-        if let screen = NSScreen.main {
-            CGWarpMouseCursorPosition(CGPoint(x: screen.frame.midX, y: screen.frame.midY))
+    /// The cursor stays exactly where it is (mouse deltas still arrive in the tap) and disappears, also
+    /// during drags; no warping back to the centre on every event.
+    private func detachAndHideCursor() {
+        CGAssociateMouseAndMouseCursorPosition(0)
+        // A background app can only hide the cursor with this connection property set
+        WindowServerPrivate.allowCursorHidingInBackground()
+        if CGDisplayHideCursor(CGMainDisplayID()) == .success {
+            isCursorHidden = true
         }
     }
     
-    private func showCursorAndRestorePosition() {
-        if invisibleCursor != nil {
-            invisibleCursor?.pop()
-            invisibleCursor = nil
-            NSCursor.unhide()
-        }
-        if let pos = originalMouseLocation {
-            CGWarpMouseCursorPosition(CGPoint(x: pos.x, y: pos.y))
-            originalMouseLocation = nil
+    private func reattachAndShowCursor() {
+        CGAssociateMouseAndMouseCursorPosition(1)
+        if isCursorHidden {
+            CGDisplayShowCursor(CGMainDisplayID())
+            isCursorHidden = false
         }
     }
     
@@ -282,12 +370,15 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     
     /// Returns false when the tap can't be created (usually missing or stale Accessibility permission).
     private func setupEventTap() -> Bool {
-        let eventMask: CGEventMask = [
+        var eventMask: CGEventMask = [
             CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp, .leftMouseDragged,
             .rightMouseDown, .rightMouseUp, .rightMouseDragged,
             .otherMouseDown, .otherMouseUp, .otherMouseDragged,
             .scrollWheel, .keyDown, .keyUp, .flagsChanged
         ].reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
+        for rawType in Self.gestureEventTypes {
+            eventMask |= CGEventMask(1) << CGEventMask(rawType)
+        }
         
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -338,6 +429,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
                 return nil
             }
             return nil
+
         }
     }
     
@@ -399,6 +491,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         if alt     { body["alt"]   = true as NSNumber }
         if command { body["super"] = true as NSNumber }
         device.send(DataPacket(type: DataPacket.mousePadRequestPacketType, body: body))
+        Logger.services.debug("Remote control: sent key (\(key.count, privacy: .public) chars, ctrl=\(ctrl, privacy: .public)) to \(device.name, privacy: .public)")
     }
     
     func sendSpecialKey(_ keyCode: Int, shift: Bool, ctrl: Bool, alt: Bool, command: Bool = false, to device: Device) {
@@ -436,13 +529,22 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     private let eventTapCallback: CGEventTapCallBack = { proxy, type, event, refcon in
         guard let refcon else { return Unmanaged.passUnretained(event) }
         let service = Unmanaged<RemoteControlService>.fromOpaque(refcon).takeUnretainedValue()
+        
+        // macOS disables a tap whose callback was too slow, or on secure input; turn it straight back on
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if service.isCapturing, let tap = service.eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+            return Unmanaged.passUnretained(event)
+        }
+        
         guard service.isCapturing, let device = service.targetDevice else {
             return Unmanaged.passUnretained(event)
         }
         
-        // Re-enable tap if macOS auto-disabled it (slow callbacks).
-        if let tap = service.eventTap {
-            CGEvent.tapEnable(tap: tap, enable: true)
+        // Trackpad gestures (Mission Control, Spaces, Launchpad pinch, Look Up…) must not act on the Mac
+        if RemoteControlService.gestureEventTypes.contains(type.rawValue) {
+            return nil
         }
         
         let eventType = CGEventType(rawValue: type.rawValue) ?? .null
@@ -453,11 +555,9 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         case .mouseMoved:
             let dx = event.getDoubleValueField(.mouseEventDeltaX)
             let dy = event.getDoubleValueField(.mouseEventDeltaY)
+            // The cursor is detached from the mouse while capturing, so it doesn't move; only the deltas matter
             if abs(dx) > 0.5 || abs(dy) > 0.5 {
                 service.sendMouseMove(dx: CGFloat(dx), dy: CGFloat(dy), to: device)
-            }
-            if let screen = NSScreen.main {
-                CGWarpMouseCursorPosition(CGPoint(x: screen.frame.midX, y: screen.frame.midY))
             }
             return nil
             
@@ -635,6 +735,10 @@ public class RemoteControlService: OutgoingService, ObservableObject {
 fileprivate extension DataPacket {
     static let mousePadRequestPacketType = "kdeconnect.mousepad.request"
     static let mousePadKeyboardStatePacketType = "kdeconnect.mousepad.keyboardstate"
+    /// Device → Mac: its pointer left through the entry edge (`releaseDeltax` / `releaseDeltay`)
+    static let shareInputDevicesPacketType = "kdeconnect.shareinputdevices"
+    /// Mac → device: the pointer crossed the screen edge (`exitEdge`, `deltax`, `deltay`)
+    static let shareInputDevicesRequestPacketType = "kdeconnect.shareinputdevices.request"
     
     var isMousePadKeyboardStatePacket: Bool { type == DataPacket.mousePadKeyboardStatePacketType }
 }
