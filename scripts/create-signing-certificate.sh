@@ -6,8 +6,9 @@
 #
 #   scripts/create-signing-certificate.sh [owner/repo]
 #
-# With the GitHub CLI (`gh`, logged in) and a repository argument, it stores the two secrets directly.
-# Otherwise it prints them for you to add under the repository's
+# With the GitHub CLI (`gh`, logged in) it stores the two secrets directly, in the repository given as
+# the argument or, without one, the repository `gh` resolves for the current checkout (after asking you
+# to confirm). Without `gh` it prints them for you to add under the repository's
 # Settings › Secrets and variables › Actions › New repository secret:
 #
 #   SODUTO_SIGNING_P12        base64 of the certificate + private key (.p12)
@@ -20,6 +21,16 @@
 set -euo pipefail
 
 REPO="${1:-}"
+if [ -z "$REPO" ] && command -v gh > /dev/null 2>&1; then
+    DETECTED="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2> /dev/null || true)"
+    if [ -n "$DETECTED" ]; then
+        read -r -p "Store the signing secrets in $DETECTED? [Y/n] " ANSWER
+        case "$ANSWER" in
+            [nN]*) echo "Pass the repository explicitly, e.g. $0 owner/repo"; exit 1 ;;
+            *) REPO="$DETECTED" ;;
+        esac
+    fi
+fi
 NAME="Soduto Self-Signed Code Signing"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
@@ -59,6 +70,7 @@ echo "Created \"$NAME\" (valid for 10 years)"
 openssl x509 -in "$WORKDIR/certificate.pem" -noout -fingerprint -sha256
 
 if [ -n "$REPO" ] && command -v gh > /dev/null 2>&1; then
+    echo "Storing the secrets in $REPO with gh…"
     printf '%s' "$P12_BASE64" | gh secret set SODUTO_SIGNING_P12 --repo "$REPO"
     printf '%s' "$PASSWORD" | gh secret set SODUTO_SIGNING_PASSWORD --repo "$REPO"
     echo "Stored SODUTO_SIGNING_P12 and SODUTO_SIGNING_PASSWORD in $REPO."
