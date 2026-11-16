@@ -1,7 +1,11 @@
 # Builds an installable Soduto.dmg on a GitHub-hosted Mac.
 #
-# The app is signed ad hoc ("Sign to Run Locally"): there is no Apple Developer certificate in CI, so the
-# build is not notarized. After installing, clear the quarantine flag once (see the README) or use
+# Signing: Xcode signs ad hoc ("Sign to Run Locally"). When the repository has the secrets
+# SODUTO_SIGNING_P12 (base64 of a .p12 holding a self-signed code-signing certificate) and
+# SODUTO_SIGNING_PASSWORD (scripts/create-signing-certificate.sh creates both), the finished app is
+# re-signed with that certificate. Its code identity then stays the same from build to build, so macOS
+# keeps the Accessibility grant and keychain access across updates. Either way the build is not
+# notarized: after installing, clear the quarantine flag once (see the README) or use
 # System Settings › Privacy & Security › Open Anyway.
 #
 # Triggers: every push, pull requests, version tags (v*), and manually from the Actions tab.
@@ -51,6 +55,15 @@ jobs:
           sudo xcode-select --switch "$XCODE_APP/Contents/Developer"
           xcodebuild -version
 
+      - name: Name the build
+        id: version
+        run: |
+          # Runs before the work tree is modified below, so the name has no "-dirty" suffix
+          VERSION=$(git describe --tags --always 2>/dev/null || git rev-parse --short HEAD)
+          SAFE_REF=$(echo "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" | tr '/' '-' | tr -cd '[:alnum:]._-')
+          echo "dmg_name=Soduto-${SAFE_REF}-${VERSION}.dmg" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=Soduto-${SAFE_REF}-${VERSION}" >> "$GITHUB_OUTPUT"
+
       - name: Write local build configuration
         run: |
           # Config.xcconfig includes the untracked LocalConfig.xcconfig, which supplies BUNDLE_ID and
@@ -73,19 +86,13 @@ jobs:
           DEVELOPMENT_TEAM =
           PROVISIONING_PROFILE_SPECIFIER =
           ENABLE_HARDENED_RUNTIME = NO
+          // Don't add the debugging-only get-task-allow entitlement to a distributed build
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO
           EOF
 
           # Sparkle's feed (SUFeedURL) is the upstream fork's appcast. Don't let this build check it
           # automatically and offer to replace itself with that fork's release.
           plutil -replace SUEnableAutomaticChecks -bool NO Soduto/Info.plist
-
-      - name: Name the build
-        id: version
-        run: |
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || git rev-parse --short HEAD)
-          SAFE_REF=$(echo "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" | tr '/' '-' | tr -cd '[:alnum:]._-')
-          echo "dmg_name=Soduto-${SAFE_REF}-${VERSION}.dmg" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=Soduto-${SAFE_REF}-${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Swift packages
         uses: actions/cache@v4
@@ -125,6 +132,63 @@ jobs:
           path: xcodebuild.log
           if-no-files-found: ignore
 
+      - name: Import signing certificate
+        id: signing
+        env:
+          SIGNING_P12: ${{ secrets.SODUTO_SIGNING_P12 }}
+          SIGNING_PASSWORD: ${{ secrets.SODUTO_SIGNING_PASSWORD }}
+        run: |
+          if [ -z "$SIGNING_P12" ] || [ -z "$SIGNING_PASSWORD" ]; then
+            echo "No SODUTO_SIGNING_P12 / SODUTO_SIGNING_PASSWORD secrets: keeping the ad-hoc signature"
+            echo "identity=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/soduto-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+          echo "$SIGNING_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" -P "$SIGNING_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          
+          # Trust the self-signed certificate for code signing so it shows up as a valid identity. If that
+          # isn't possible, codesign still signs with it when given its SHA-1 hash (below).
+          /usr/bin/openssl pkcs12 -in "$RUNNER_TEMP/signing.p12" -passin env:SIGNING_PASSWORD -nokeys -clcerts -out "$RUNNER_TEMP/signing-cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/signing-cert.pem" \
+            || sudo security add-trusted-cert -d -r trustAsRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/signing-cert.pem" \
+            || echo "::warning::Couldn't mark the signing certificate as trusted; signing by hash"
+          rm -f "$RUNNER_TEMP/signing.p12"
+          
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | awk '/[0-9A-F]{40}/ { print $2; exit }')
+          if [ -z "$IDENTITY" ]; then
+            IDENTITY=$(security find-identity -p codesigning "$KEYCHAIN" | awk '/[0-9A-F]{40}/ { print $2; exit }')
+          fi
+          if [ -z "$IDENTITY" ]; then
+            security find-identity -p codesigning "$KEYCHAIN"
+            echo "::error::SODUTO_SIGNING_P12 doesn't contain a code-signing certificate and private key"
+            exit 1
+          fi
+          echo "Signing identity: $IDENTITY"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
+      
+      - name: Re-sign with the stable certificate
+        if: steps.signing.outputs.identity != ''
+        env:
+          IDENTITY: ${{ steps.signing.outputs.identity }}
+          KEYCHAIN: ${{ steps.signing.outputs.keychain }}
+        run: |
+          APP="$DERIVED_DATA/Build/Products/Release/Soduto.app"
+          # Re-sign every nested component (frameworks, XPC services, Soduto Files, the Share extension,
+          # the login helper) and the app, keeping each one's own entitlements
+          codesign --force --deep --sign "$IDENTITY" --keychain "$KEYCHAIN" \
+            --preserve-metadata=entitlements,flags --timestamp=none "$APP"
+          echo "Designated requirement (what TCC and the keychain match against):"
+          codesign --display --requirements - "$APP"
+      
       - name: Inspect the app
         run: |
           APP="$DERIVED_DATA/Build/Products/Release/Soduto.app"
@@ -160,6 +224,10 @@ jobs:
             ${{ steps.version.outputs.dmg_name }}.sha256
           if-no-files-found: error
 
+      - name: Remove signing keychain
+        if: always() && steps.signing.outputs.keychain != ''
+        run: security delete-keychain "${{ steps.signing.outputs.keychain }}" || true
+      
       - name: Attach DMG to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
