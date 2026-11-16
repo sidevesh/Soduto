@@ -110,6 +110,7 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
             settingsWindowController = SettingsWindowController(
                 config: config,
                 updateManager: AppDelegate.shared().updateManager,
+                deviceDataSource: deviceDataSource,
                 onOpenDashboard: { [weak self] in self?.openDashboard(nil) }
             )
         }

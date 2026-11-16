@@ -17,6 +17,11 @@ final class UpdateManager: NSObject {
 
     private(set) lazy var updaterController: SPUStandardUpdaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: self)
 
+    /// Same as the menu bar menu's Check for Updates… (used by Settings › Updates)
+    func checkForUpdates() {
+        updaterController.checkForUpdates(nil)
+    }
+    
     var automaticallyChecksForUpdates: Bool {
         get { updaterController.updater.automaticallyChecksForUpdates }
         set { updaterController.updater.automaticallyChecksForUpdates = newValue }

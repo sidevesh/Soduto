@@ -7,15 +7,26 @@
 
 import SwiftUI
 
-/// Bridges the settings that live outside `UserDefaults.standard` keys (login item, Sparkle) to SwiftUI.
+/// Shared state for the Settings tabs: settings that live outside `UserDefaults.standard` keys (login
+/// item, Sparkle) and the paired devices offered as screen-edge targets.
 @MainActor
 final class SettingsModel: ObservableObject {
+    struct PairedDevice: Identifiable, Hashable {
+        let id: Device.Id
+        let name: String
+        let isConnected: Bool
+        let supportsEdgeControl: Bool
+    }
+
     private let config: Configuration?
     private let updateManager: UpdateManager?
+    private weak var deviceDataSource: DeviceDataSource?
 
     let hostName: String
-    let onEditRunCommands: () -> Void
     let onOpenDashboard: () -> Void
+
+    @Published private(set) var pairedDevices: [PairedDevice] = []
+    @Published private(set) var isAccessibilityGranted = AccessibilityPermission.isGranted
 
     @Published var launchAtLogin: Bool {
         didSet {
@@ -33,33 +44,52 @@ final class SettingsModel: ObservableObject {
         didSet { updateManager?.automaticallyChecksForUpdates = checksForUpdatesAutomatically }
     }
 
-    init(config: Configuration?, updateManager: UpdateManager?, onEditRunCommands: @escaping () -> Void, onOpenDashboard: @escaping () -> Void) {
+    init(config: Configuration?, updateManager: UpdateManager?, deviceDataSource: DeviceDataSource?, onOpenDashboard: @escaping () -> Void) {
         self.config = config
         self.updateManager = updateManager
+        self.deviceDataSource = deviceDataSource
         self.hostName = config?.hostDeviceName ?? Host.current().localizedName ?? "This Mac"
-        self.onEditRunCommands = onEditRunCommands
         self.onOpenDashboard = onOpenDashboard
         self.launchAtLogin = config?.launchOnLogin ?? false
         self.checksForUpdatesAutomatically = updateManager?.automaticallyChecksForUpdates ?? false
+        refreshDevices()
     }
 
-    /// Re-reads values that can change outside the window (e.g. "Launch on Login" in the menu bar menu)
+    /// Re-reads values that can change while the window is closed or in the background
     func reload() {
         launchAtLogin = config?.launchOnLogin ?? false
         checksForUpdatesAutomatically = updateManager?.automaticallyChecksForUpdates ?? false
+        isAccessibilityGranted = AccessibilityPermission.isGranted
+        refreshDevices()
+    }
+
+    func refreshDevices() {
+        guard let dataSource = deviceDataSource else { return }
+        let reachable = Set(dataSource.pairedRechableDevices.map(\.id))
+        pairedDevices = (dataSource.pairedDevices + dataSource.unavailableDevices)
+            .map { device in
+                PairedDevice(
+                    id: device.id,
+                    name: device.name,
+                    isConnected: reachable.contains(device.id),
+                    supportsEdgeControl: RemoteControlService.supportsEdgeControl(device)
+                )
+            }
+            .sorted { $0.name < $1.name }
+    }
+
+    func checkForUpdates() {
+        updateManager?.checkForUpdates()
     }
 }
 
-/// Soduto's Settings window: a grouped form in the style of System Settings.
-/// Devices (pairing, unpairing, discovery, reconnecting) are managed in the Dashboard.
-struct SettingsView: View {
+// MARK: - General
+
+struct GeneralSettingsView: View {
     @ObservedObject var model: SettingsModel
 
     @AppStorage(AppDefaultsStore.Preferences.deviceTypeKey) private var deviceType = 0
     @AppStorage(AppDefaultsStore.Preferences.disableSharePopUpKey) private var sendToOnlyDevice = false
-    @AppStorage(AppDefaultsStore.Preferences.MenuBar.showDeviceIconKey) private var showDeviceIcon = false
-    @AppStorage(AppDefaultsStore.Preferences.MenuBar.showBatteryKey) private var showBattery = false
-    @AppStorage(AppDefaultsStore.Preferences.MenuBar.showSignalKey) private var showSignal = false
 
     var body: some View {
         Form {
@@ -75,13 +105,12 @@ struct SettingsView: View {
             } header: {
                 Text("This Mac")
             } footer: {
-                Text("Your devices see this name and icon. The name is this Mac's name in General › About; changes reach devices the next time they connect.")
+                Text("Your devices see this name and icon. The name is this Mac’s name in General › About; changes reach devices the next time they connect.")
                     .foregroundStyle(.secondary)
             }
 
-            Section("General") {
+            Section {
                 Toggle("Open at Login", isOn: $model.launchAtLogin)
-                Toggle("Check for Updates Automatically", isOn: $model.checksForUpdatesAutomatically)
                 Toggle(isOn: $sendToOnlyDevice) {
                     Text("Send Dropped Items Without Asking")
                     Text("When only one device is connected, items dropped on the menu bar icon go straight to it.")
@@ -89,23 +118,6 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Device Icon", isOn: $showDeviceIcon)
-                Toggle("Battery Level", isOn: $showBattery)
-                Toggle("Signal Strength", isOn: $showSignal)
-            } header: {
-                Text("Menu Bar")
-            } footer: {
-                Text("Shown while exactly one device is connected. With no device or several, the menu bar shows the Soduto icon.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                LabeledContent {
-                    Button("Edit Commands…", action: model.onEditRunCommands)
-                } label: {
-                    Text("Run Commands")
-                    Text("Commands your devices can run on this Mac.")
-                }
                 LabeledContent {
                     Button("Open Dashboard", action: model.onOpenDashboard)
                 } label: {
@@ -115,6 +127,165 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 460, idealWidth: 500, minHeight: 420, idealHeight: 620)
+        .frame(width: 520, height: 400)
+    }
+}
+
+// MARK: - Menu Bar
+
+struct MenuBarSettingsView: View {
+    @AppStorage(AppDefaultsStore.Preferences.MenuBar.showDeviceIconKey) private var showDeviceIcon = false
+    @AppStorage(AppDefaultsStore.Preferences.MenuBar.showBatteryKey) private var showBattery = false
+    @AppStorage(AppDefaultsStore.Preferences.MenuBar.showSignalKey) private var showSignal = false
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Device Icon", isOn: $showDeviceIcon)
+                Toggle("Battery Level", isOn: $showBattery)
+                Toggle("Signal Strength", isOn: $showSignal)
+            } header: {
+                Text("Show in Menu Bar")
+            } footer: {
+                Text("Shown while exactly one device is connected. With no device or several, the menu bar shows the Soduto icon.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 520, height: 260)
+    }
+}
+
+// MARK: - Control
+
+struct ControlSettingsView: View {
+    @ObservedObject var model: SettingsModel
+
+    @AppStorage(AppDefaultsStore.Preferences.EdgeControl.enabledKey) private var edgeControlEnabled = false
+    @AppStorage(AppDefaultsStore.Preferences.EdgeControl.edgeKey) private var edge = ScreenEdge.right.rawValue
+    @AppStorage(AppDefaultsStore.Preferences.EdgeControl.deviceIdKey) private var deviceId = ""
+
+    @State private var showingEdgeIntro = false
+
+    private var selectedEdge: ScreenEdge { ScreenEdge(rawValue: edge) ?? .right }
+
+    private var targetName: String {
+        if let device = model.pairedDevices.first(where: { $0.id == deviceId }) { return device.name }
+        let capable = model.pairedDevices.filter { $0.isConnected && $0.supportsEdgeControl }
+        return capable.count == 1 ? capable[0].name : "your device"
+    }
+
+    /// A problem worth telling the user about, if any
+    private var edgeControlIssue: String? {
+        guard edgeControlEnabled else { return nil }
+        if !model.isAccessibilityGranted {
+            return "Soduto needs Accessibility access to control a device (see below)."
+        }
+        if let device = model.pairedDevices.first(where: { $0.id == deviceId }) {
+            if device.isConnected && !device.supportsEdgeControl {
+                return "Turn on “Input devices receiver” for this Mac in KDE Connect on \(device.name)."
+            }
+            return nil
+        }
+        let capable = model.pairedDevices.filter { $0.isConnected && $0.supportsEdgeControl }
+        if capable.count > 1 {
+            return "Several connected devices support this; choose one above."
+        }
+        return nil
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle(isOn: $edgeControlEnabled) {
+                    Text("Control a Device from the Screen Edge")
+                    Text("Push the pointer past an edge of the screen to use this Mac’s keyboard and mouse on the device; move it back to return.")
+                }
+                .onChange(of: edgeControlEnabled) { _, isOn in
+                    if isOn { showingEdgeIntro = true }
+                }
+
+                Picker("Device", selection: $deviceId) {
+                    Text("Automatic").tag("")
+                    ForEach(model.pairedDevices) { device in
+                        Text(device.name).tag(device.id)
+                    }
+                }
+                .disabled(!edgeControlEnabled)
+
+                Picker("Device Is On This Side", selection: $edge) {
+                    ForEach(ScreenEdge.allCases) { edge in
+                        Text(edge.title).tag(edge.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .disabled(!edgeControlEnabled)
+            } header: {
+                Text("Screen Edge")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let issue = edgeControlIssue {
+                        Label(issue, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    Text("Uses the edge of the display with the menu bar. Needs KDE Connect’s “Input devices receiver” on the device; Automatic picks the only connected device that has it.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                LabeledContent("Stop Controlling", value: "⌥⎋  Option-Escape")
+                LabeledContent {
+                    if model.isAccessibilityGranted {
+                        Label("Allowed", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        Button("Open System Settings") { AccessibilityPermission.openSettings() }
+                    }
+                } label: {
+                    Text("Accessibility")
+                    Text(AccessibilityPermission.settingsLocation)
+                }
+            } footer: {
+                Text("Works the same for Control Device in a device’s menu and for the screen edge.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 520, height: 440)
+        .alert("Screen Edge Control Is On", isPresented: $showingEdgeIntro) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Push the pointer past the \(selectedEdge.title.lowercased()) edge of the screen to control \(targetName). To come back, move its pointer back out through the same edge.\n\nIf the pointer ever gets stuck on the device, press Option-Escape (⌥⎋) to take back your keyboard and mouse.")
+        }
+    }
+}
+
+// MARK: - Updates
+
+struct UpdatesSettingsView: View {
+    @ObservedObject var model: SettingsModel
+
+    private var version: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Version", value: version)
+                Toggle("Check for Updates Automatically", isOn: $model.checksForUpdatesAutomatically)
+                LabeledContent {
+                    Button("Check Now", action: model.checkForUpdates)
+                } label: {
+                    Text("Check for Updates")
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 520, height: 220)
     }
 }
