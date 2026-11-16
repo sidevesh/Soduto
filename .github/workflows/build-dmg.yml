@@ -28,11 +28,11 @@ on:
         description: GitHub-hosted macOS runner (any with Xcode 26 works; switch if one is short of capacity)
         type: choice
         required: false
-        default: macos-15
+        default: macos-15-intel
         options:
+          - macos-15-intel
           - macos-15
           - macos-26
-          - macos-15-intel
 
 permissions:
   contents: write  # attach the DMG to a release for v* tags
@@ -44,9 +44,10 @@ concurrency:
 jobs:
   build:
     name: Build and package
-    # The project needs Xcode 26 (Icon Composer `.icon` app icon, macOS 26 SDK). macos-15 images ship
-    # Xcode 26 too and have far more capacity than macos-26, whose jobs were repeatedly left unassigned.
-    runs-on: ${{ inputs.runner || 'macos-15' }}
+    # The project needs Xcode 26 (Icon Composer `.icon` app icon, macOS 26 SDK), which the macos-15 and
+    # macos-26 images ship. Apple Silicon runners (macos-15, macos-26) were repeatedly left unassigned for
+    # lack of capacity, so the Intel image is the default; the universal app it builds runs on both.
+    runs-on: ${{ inputs.runner || 'macos-15-intel' }}
     timeout-minutes: 60
     env:
       BUNDLE_ID: ${{ inputs.bundle_id || 'com.soduto.Soduto' }}
