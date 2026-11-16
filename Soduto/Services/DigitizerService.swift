@@ -313,9 +313,14 @@ public class DigitizerService: IncomingService {
         eventPostQueue.async {
             guard let source = CGEventSource(stateID: .hidSystemState) else { return }
             guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: position, mouseButton: .left) else { return }
-            // Mark as tablet-point event so drawing apps pick up pressure
+            // Mark as tablet-point event so drawing apps pick up pressure.
+            // Fill in every pressure field a real tablet driver sets: `NSEvent.pressure`, which browsers
+            // (Pointer Events) and most apps read, comes from `mouseEventPressure`, not the tablet field.
+            let clamped = max(0, min(1, pressure))
             event.setIntegerValueField(.mouseEventSubtype, value: 1)  // NX_SUBTYPE_TABLET_POINT
-            event.setDoubleValueField(.tabletEventPointPressure, value: pressure)
+            event.setDoubleValueField(.mouseEventPressure, value: clamped)
+            event.setDoubleValueField(.tabletEventPointPressure, value: clamped)
+            event.setIntegerValueField(.tabletEventPointButtons, value: (asDrag || type == .leftMouseDown) && clamped > 0 ? 1 : 0)
             event.setIntegerValueField(.tabletEventDeviceID, value: devID)
             event.post(tap: .cghidEventTap)
         }
