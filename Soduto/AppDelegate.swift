@@ -28,6 +28,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
     private(set) var userNotificationManager: UserNotificationManager!
     let updateManager: UpdateManager
     private var heartbeatTimer: Timer?
+    /// The previous run's last heartbeat, if it never reached `applicationWillTerminate`
+    private var previousLastAlive: TimeInterval?
     
     override init() {
         self.connectionProvider = ConnectionProvider(config: config)
@@ -81,6 +83,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
         registerShareExtensionObserver(notificationCenter, notificationName)
         
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(wakeUpListener(_:)), name: NSWorkspace.didWakeNotification, object: nil)
+        observeLifecycleForDiagnostics()
         
         self.connectionProvider.start()
         
@@ -88,6 +91,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
     }
     
     func applicationWillTerminate(_ aNotification: Notification) {
+        Logger.general.notice("Soduto is quitting normally")
+        UserDefaults.standard.removeObject(forKey: Self.lastAliveKey)
         heartbeatTimer?.invalidate()
         AppDefaultsStore.ShareExtension.appLastHeartbeat = 0
         AppDefaultsStore.ShareExtension.reachableDevices = []
@@ -139,6 +144,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
     // MARK: WakeUP Function
     
     @objc private func wakeUpListener(_ aNotification: Notification) {
+        Logger.general.notice("Mac woke from sleep; restarting network services")
         self.connectionProvider.restart()
         self.updateValidDevices()
     }
@@ -146,9 +152,46 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
     // MARK: Extension Support
     
     private func startHeartbeat() {
+        let lastAlive = UserDefaults.standard.double(forKey: Self.lastAliveKey)
+        previousLastAlive = lastAlive > 0 ? lastAlive : nil
         AppDefaultsStore.ShareExtension.appLastHeartbeat = Date().timeIntervalSince1970
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastAliveKey)
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
             AppDefaultsStore.ShareExtension.appLastHeartbeat = Date().timeIntervalSince1970
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastAliveKey)
+        }
+    }
+    
+    // MARK: Diagnostics
+    
+    /// Last time this run was known to be alive (every 30 s); removed on a normal quit
+    private static let lastAliveKey = "\(AppDefaultsStore.mainBundleId).diagnostics.lastAlive"
+    
+    /// Leaves markers in the system log (`log show --predicate 'subsystem == "com.soduto.Soduto"'`) for
+    /// sleep, wake, screen lock and unlock, and notes when the previous run ended without quitting, so a
+    /// vanished menu bar icon can be matched to what the Mac was doing at the time.
+    private func observeLifecycleForDiagnostics() {
+        // startHeartbeat() (which runs first) kept the value it replaced
+        if let previous = previousLastAlive {
+            let date = Date(timeIntervalSince1970: previous)
+            Logger.general.error("Previous Soduto run ended unexpectedly (crash or forced quit); last alive \(date, privacy: .public)")
+        }
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
+            Logger.general.notice("Mac is going to sleep")
+        }
+        workspace.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { _ in
+            Logger.general.notice("Displays went to sleep")
+        }
+        workspace.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { _ in
+            Logger.general.notice("Displays woke")
+        }
+        let distributed = DistributedNotificationCenter.default()
+        distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { _ in
+            Logger.general.notice("Screen locked")
+        }
+        distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { _ in
+            Logger.general.notice("Screen unlocked")
         }
     }
     
