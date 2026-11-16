@@ -47,6 +47,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, BrowserWindowControllerDeleg
     
     private(set) var browserWindowControllers: [BrowserWindowController] = []
     
+    /// SFTP connections still being set up; the app must stay alive until they finish or fail
+    private var pendingConnections = 0
+    
     var keyBrowserWindowController: BrowserWindowController? {
         return NSApp.keyWindow?.windowController as? BrowserWindowController
     }
@@ -63,8 +66,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, BrowserWindowControllerDeleg
     }
     
     func applicationDidFinishLaunching(_ aNotification: Notification) {
-//        let fs = try! SftpFileSystem(name: "SFTP", host: "286840.s.dedikuoti.lt", user: "giedrius", password: "gargantuki", path: "/")
-//        newBrowserWindow(with: fs)
+        // Soduto Files is launched by Soduto with an sftp:// URL. Launched any other way (e.g. from Finder),
+        // there is nothing to show: quit instead of idling with no window.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            self?.terminateIfNoWindows()
+        }
+    }
+    
+    /// Clicking the app in the Dock with no browser open would otherwise show nothing
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if browserWindowControllers.isEmpty {
+            terminateIfNoWindows()
+            return false
+        }
+        return true
     }
     
     func applicationWillTerminate(_ aNotification: Notification) {
@@ -157,16 +172,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, BrowserWindowControllerDeleg
         let windowController = BrowserWindowController(fileSystem: fileSystem)
         windowController.delegate = self
         browserWindowControllers.append(windowController)
+        // `LSUIElement` keeps Soduto Files out of the Dock; it only appears there (with its menu bar)
+        // while a browser window is open
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
         windowController.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         return windowController
     }
     
-    /// Soduto Files only exists to show browser windows; once none is left, quit so it leaves the Dock.
+    /// Soduto Files only exists to show browser windows; once none is left (and no connection is being
+    /// set up) it leaves the Dock right away and quits.
     private func terminateIfNoWindows() {
-        if browserWindowControllers.isEmpty {
-            NSApp.terminate(nil)
-        }
+        guard browserWindowControllers.isEmpty, pendingConnections == 0 else { return }
+        NSApp.setActivationPolicy(.accessory)
+        NSApp.terminate(nil)
     }
     
     private func showConnectionError(_ error: Error, deviceName: String) {
@@ -176,7 +197,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, BrowserWindowControllerDeleg
         alert.messageText = String(format: NSLocalizedString("Couldn't browse files on %@", comment: "SFTP connection failure title"), deviceName)
         alert.informativeText = String(format: NSLocalizedString("%@\n\nOn Android 11 and later, KDE Connect needs the “All files access” permission (in its Filesystem Expose plugin settings) to share storage.", comment: "SFTP connection failure message"), error.localizedDescription)
         alert.runModal()
-        terminateIfNoWindows()
     }
     
     private func isWindowTabbed(_ window: NSWindow?) -> Bool {
@@ -218,7 +238,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, BrowserWindowControllerDeleg
             let path = url.path
             
             // Create SFTP file system asynchronously
+            pendingConnections += 1
             Task { @MainActor in
+                defer {
+                    self.pendingConnections -= 1
+                    self.terminateIfNoWindows()
+                }
                 do {
                     let fs = try await SftpFileSystem(name: name, host: host, port: port, user: user, password: password, path: path)
                     self.newBrowserWindow(with: fs)
