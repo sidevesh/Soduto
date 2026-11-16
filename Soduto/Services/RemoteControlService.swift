@@ -363,7 +363,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         hideCursor()
         
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            self?.reassertCursorCapture()
+            self?.reassertCursorCapture(force: false)
         }
         RunLoop.main.add(timer, forMode: .common)
         cursorGuardTimer = timer
@@ -371,15 +371,16 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didActivateApplicationNotification] {
             workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.reassertCursorCapture()
+                self?.reassertCursorCapture(force: true)
             })
         }
     }
     
-    private func reassertCursorCapture() {
+    /// `force`: hide again even when visibility can't be read (after a Space or app change)
+    private func reassertCursorCapture(force: Bool) {
         guard isCapturing else { return }
         CGAssociateMouseAndMouseCursorPosition(0)
-        if CGCursorIsVisible() != 0 {
+        if WindowServerPrivate.isCursorVisible ?? force {
             WindowServerPrivate.allowCursorHidingInBackground()
             hideCursor()
         }

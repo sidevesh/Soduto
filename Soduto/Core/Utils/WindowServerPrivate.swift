@@ -22,6 +22,7 @@ enum WindowServerPrivate {
     private typealias ConnectionIDFunction = @convention(c) () -> Int32
     private typealias SetHotKeyModeFunction = @convention(c) (Int32, Int32) -> Int32
     private typealias SetConnectionPropertyFunction = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
+    private typealias CursorIsVisibleFunction = @convention(c) () -> UInt32
 
     /// `CGSGlobalHotKeyOperatingMode` values
     private enum HotKeyMode: Int32 {
@@ -46,6 +47,14 @@ enum WindowServerPrivate {
         function(["CGSSetGlobalHotKeyOperatingMode", "SLSSetGlobalHotKeyOperatingMode"], as: SetHotKeyModeFunction.self)
     private static let setConnectionProperty: SetConnectionPropertyFunction? =
         function(["CGSSetConnectionProperty", "SLSSetConnectionProperty"], as: SetConnectionPropertyFunction.self)
+    /// `CGCursorIsVisible` is still exported but no longer callable from Swift
+    private static let cursorIsVisible: CursorIsVisibleFunction? =
+        function(["CGCursorIsVisible", "CGSCursorIsVisible"], as: CursorIsVisibleFunction.self)
+    
+    /// Whether the cursor is currently shown, or nil if that can't be determined
+    static var isCursorVisible: Bool? {
+        cursorIsVisible.map { $0() != 0 }
+    }
 
     /// Pauses (or resumes) system-wide keyboard shortcuts for this app's WindowServer connection.
     /// WindowServer restores them on its own if the app quits or crashes.
