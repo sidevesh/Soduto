@@ -24,6 +24,15 @@ on:
         description: Bundle identifier for the app (keep the default to replace an existing Soduto install and keep its pairings)
         required: false
         default: com.soduto.Soduto
+      runner:
+        description: GitHub-hosted macOS runner (any with Xcode 26 works; switch if one is short of capacity)
+        type: choice
+        required: false
+        default: macos-15
+        options:
+          - macos-15
+          - macos-26
+          - macos-15-intel
 
 permissions:
   contents: write  # attach the DMG to a release for v* tags
@@ -35,8 +44,9 @@ concurrency:
 jobs:
   build:
     name: Build and package
-    # The project uses an Icon Composer `.icon` app icon, which needs Xcode 26
-    runs-on: macos-26
+    # The project needs Xcode 26 (Icon Composer `.icon` app icon, macOS 26 SDK). macos-15 images ship
+    # Xcode 26 too and have far more capacity than macos-26, whose jobs were repeatedly left unassigned.
+    runs-on: ${{ inputs.runner || 'macos-15' }}
     timeout-minutes: 60
     env:
       BUNDLE_ID: ${{ inputs.bundle_id || 'com.soduto.Soduto' }}
@@ -50,8 +60,14 @@ jobs:
 
       - name: Select Xcode 26
         run: |
-          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1)
-          if [ -z "$XCODE_APP" ]; then XCODE_APP=/Applications/Xcode.app; fi
+          # Newest installed Xcode 26 (release builds only; skip betas / release candidates when possible)
+          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -viE 'beta|rc' | sort -V | tail -n 1)
+          if [ -z "$XCODE_APP" ]; then XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1); fi
+          if [ -z "$XCODE_APP" ]; then
+            ls -d /Applications/Xcode*.app
+            echo "::error::No Xcode 26 on this runner image; choose another runner"
+            exit 1
+          fi
           sudo xcode-select --switch "$XCODE_APP/Contents/Developer"
           xcodebuild -version
 
