@@ -159,23 +159,25 @@ public class DeviceListItemView: NSTableCellView {
 
 extension DeviceType {
     
+    /// The same SF Symbol as everywhere else (menu bar, Dashboard, control banner), as an AppKit image
     public var icon: NSImage? {
-        switch self {
-        case .Desktop: return #imageLiteral(resourceName: "desktopIcon")
-        case .Laptop: return #imageLiteral(resourceName: "laptopIcon")
-        case .Tablet: return #imageLiteral(resourceName: "tabletIcon")
-        case .Phone: return #imageLiteral(resourceName: "phoneIcon")
-        case .TV: return NSImage(systemSymbolName: "tv", accessibilityDescription: "TV")
-        default: return nil
-        }
+        let image = NSImage(systemSymbolName: sfSymbolName, accessibilityDescription: rawValue)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 28, weight: .regular))
+        image?.isTemplate = true
+        return image
     }
+    
+    /// A generic phone rather than an iPhone (the phone is usually an Android device); falls back to
+    /// "iphone" should a system ever lack the symbol
+    private static let phoneSymbolName =
+        NSImage(systemSymbolName: "smartphone", accessibilityDescription: nil) != nil ? "smartphone" : "iphone"
     
     /// SF Symbol name for this device type.
     public var sfSymbolName: String {
         switch self {
         case .Desktop: return "desktopcomputer"
         case .Laptop: return "laptopcomputer"
-        case .Phone: return "iphone"
+        case .Phone: return Self.phoneSymbolName
         case .Tablet: return "ipad"
         case .TV: return "tv"
         case .Unknown: return "display"
