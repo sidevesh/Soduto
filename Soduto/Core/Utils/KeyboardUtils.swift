@@ -30,6 +30,32 @@ func rawBaseCharacter(for keyCode: UInt16) -> String? {
 }
 
 
+/// Text the key produces in the current keyboard layout with Shift / Option / Caps Lock applied
+/// (dead keys off), for key events that arrive without text, such as those seen by a HID-level tap.
+func translatedCharacters(for keyCode: UInt16, shift: Bool, option: Bool, capsLock: Bool) -> String? {
+    guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+          let ptr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+    let data = unsafeBitCast(ptr, to: CFData.self) as Data
+    // Carbon modifier bits, shifted down as UCKeyTranslate expects
+    var modifiers = 0
+    if shift { modifiers |= shiftKey }
+    if option { modifiers |= optionKey }
+    if capsLock { modifiers |= alphaLock }
+    let modifierState = UInt32((modifiers >> 8) & 0xFF)
+    return data.withUnsafeBytes { buffer -> String? in
+        guard let layout = buffer.bindMemory(to: UCKeyboardLayout.self).baseAddress else { return nil }
+        var dead: UInt32 = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        var len = 0
+        let status = UCKeyTranslate(layout, keyCode, UInt16(kUCKeyActionDown),
+                                    modifierState, UInt32(LMGetKbdType()),
+                                    OptionBits(kUCKeyTranslateNoDeadKeysMask),
+                                    &dead, 4, &len, &chars)
+        guard status == noErr, len > 0 else { return nil }
+        return String(utf16CodeUnits: Array(chars.prefix(len)), count: len)
+    }
+}
+
 // MARK: - KDE Connect special-key mapping
 
 /// Maps a macOS virtual key code to a KDE Connect special-key code (1–32).

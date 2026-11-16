@@ -10,7 +10,7 @@ import SwiftUI
 
 /// The pill shown at the top of the screen while this Mac's keyboard and mouse control a device,
 /// in the spirit of Screen Sharing / Universal Control: device icon, "Controlling <name>" and how to
-/// get back. After a few seconds it shrinks to just the icon and name so it stays out of the way.
+/// get back. It stays fully expanded for the whole session, so the way out (⌥⎋) is always on screen.
 final class ControlOverlay {
 
     fileprivate final class Model: ObservableObject {
@@ -18,7 +18,6 @@ final class ControlOverlay {
         let symbolName: String
         let hint: String
         let note: String?
-        @Published var isCompact = false
 
         init(deviceName: String, symbolName: String, hint: String, note: String?) {
             self.deviceName = deviceName
@@ -29,7 +28,6 @@ final class ControlOverlay {
     }
 
     private var panel: NSPanel?
-    private var collapseWorkItem: DispatchWorkItem?
 
     /// Panel size; the pill is centred at its top and the transparent rest ignores the mouse
     private static let panelSize = NSSize(width: 560, height: 96)
@@ -68,17 +66,9 @@ final class ControlOverlay {
             panel.animator().alphaValue = 1
         }
         self.panel = panel
-
-        let collapse = DispatchWorkItem { [weak model] in
-            withAnimation(.easeInOut(duration: 0.35)) { model?.isCompact = true }
-        }
-        collapseWorkItem = collapse
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: collapse)
     }
 
     func hide(animated: Bool = true) {
-        collapseWorkItem?.cancel()
-        collapseWorkItem = nil
         guard let panel else { return }
         self.panel = nil
         guard animated else {
@@ -107,32 +97,30 @@ final class ControlOverlay {
         }
 
         private var pill: some View {
-            HStack(spacing: model.isCompact ? 8 : 12) {
+            HStack(spacing: 12) {
                 Image(systemName: model.symbolName)
-                    .font(.system(size: model.isCompact ? 15 : 22, weight: .medium))
+                    .font(.system(size: 22, weight: .medium))
                     .foregroundStyle(.primary)
-                    .frame(width: model.isCompact ? 18 : 26)
+                    .frame(width: 26)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.isCompact ? model.deviceName : "Controlling \(model.deviceName)")
+                    Text("Controlling \(model.deviceName)")
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
-                    if !model.isCompact {
-                        Text(model.hint)
+                    Text(model.hint)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    if let note = model.note {
+                        Text(note)
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
-                        if let note = model.note {
-                            Text(note)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
                     }
                 }
             }
-            .padding(.horizontal, model.isCompact ? 14 : 18)
-            .padding(.vertical, model.isCompact ? 7 : 11)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 11)
             .modifier(PillBackground())
             .padding(.top, 4)
             .accessibilityElement(children: .combine)

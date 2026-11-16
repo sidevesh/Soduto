@@ -15,11 +15,13 @@ import os
 /// Implements the outgoing side of the `kdeconnect.mousepad` protocol. While capturing, every Mac keyboard,
 /// mouse and trackpad event is intercepted by a CGEvent tap and forwarded as `kdeconnect.mousepad.request`
 /// packets. Like other input-sharing apps, capture also:
-/// - detaches the cursor from the mouse (`CGAssociateMouseAndMouseCursorPosition`) and hides it, so the
-///   Mac pointer neither shows nor moves (including during drags)
+/// - taps at the HID level, where events enter WindowServer: that is before it matches system keyboard
+///   shortcuts (⌘Tab, ⌃↑ Mission Control, Spotlight…) and before it moves the cursor, so swallowed events
+///   do neither (a session-level tap only sees events after both)
+/// - detaches the cursor from the mouse (`CGAssociateMouseAndMouseCursorPosition`) and hides it, and keeps
+///   re-applying both, because WindowServer resets them when Spaces or the active app change
 /// - swallows trackpad gesture events (Mission Control / Spaces swipes, pinch, rotate)
-/// - pauses system keyboard shortcuts (⌘Tab, Mission Control, Spotlight…), which WindowServer would
-///   otherwise handle before the tap sees them, so they reach the device instead
+/// - also pauses system keyboard shortcuts through WindowServer as a second line of defence
 ///
 /// Two ways in, sharing one capture session so they can't conflict:
 /// - **Control Device** (menu action): manual mode, until ⌥⎋
@@ -77,7 +79,10 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     private var optionKeyPressed = false
     private var isDragging = false
     private var escapeMonitor: Any?
-    private var isCursorHidden = false
+    /// How many times this session hid the cursor (hiding is counted; showing must balance it)
+    private var cursorHideCount = 0
+    private var cursorGuardTimer: Timer?
+    private var workspaceObservers: [NSObjectProtocol] = []
     private var areSystemShortcutsPaused = false
     
     /// Exposes the connected device type to the CGEvent tap callback (which has no `self`).
@@ -348,21 +353,57 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     
     /// The cursor stays exactly where it is (mouse deltas still arrive in the tap) and disappears, also
     /// during drags; no warping back to the centre on every event.
+    ///
+    /// WindowServer undoes both when the active Space or app changes (Mission Control, a notification
+    /// taking focus, an app launching), so they are re-applied on those changes and on a short timer.
     private func detachAndHideCursor() {
-        CGAssociateMouseAndMouseCursorPosition(0)
         // A background app can only hide the cursor with this connection property set
         WindowServerPrivate.allowCursorHidingInBackground()
+        CGAssociateMouseAndMouseCursorPosition(0)
+        hideCursor()
+        
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            self?.reassertCursorCapture()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        cursorGuardTimer = timer
+        
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didActivateApplicationNotification] {
+            workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.reassertCursorCapture()
+            })
+        }
+    }
+    
+    private func reassertCursorCapture() {
+        guard isCapturing else { return }
+        CGAssociateMouseAndMouseCursorPosition(0)
+        if CGCursorIsVisible() != 0 {
+            WindowServerPrivate.allowCursorHidingInBackground()
+            hideCursor()
+        }
+    }
+    
+    private func hideCursor() {
         if CGDisplayHideCursor(CGMainDisplayID()) == .success {
-            isCursorHidden = true
+            cursorHideCount += 1
         }
     }
     
     private func reattachAndShowCursor() {
+        cursorGuardTimer?.invalidate()
+        cursorGuardTimer = nil
+        let center = NSWorkspace.shared.notificationCenter
+        workspaceObservers.forEach(center.removeObserver)
+        workspaceObservers.removeAll()
+        
         CGAssociateMouseAndMouseCursorPosition(1)
-        if isCursorHidden {
+        // Showing more often than WindowServer still counts is harmless; showing too rarely isn't
+        for _ in 0..<cursorHideCount {
             CGDisplayShowCursor(CGMainDisplayID())
-            isCursorHidden = false
         }
+        cursorHideCount = 0
     }
     
     
@@ -380,8 +421,9 @@ public class RemoteControlService: OutgoingService, ObservableObject {
             eventMask |= CGEventMask(1) << CGEventMask(rawType)
         }
         
+        // HID level: ahead of WindowServer's shortcut handling and cursor movement (see the type comment)
         guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
+            tap: .cghidEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: eventMask,
@@ -704,9 +746,12 @@ public class RemoteControlService: OutgoingService, ObservableObject {
                 // so send the plain key instead (`charactersIgnoringModifiers` only keeps Shift's effect).
                 let key: String
                 if service.isVanillaAndroid {
-                    if let nsEvent = NSEvent(cgEvent: event) {
-                        key = (ctrl ? nsEvent.charactersIgnoringModifiers : nsEvent.characters) ?? ""
-                    } else { key = "" }
+                    let fromEvent = NSEvent(cgEvent: event).flatMap { ctrl ? $0.charactersIgnoringModifiers : $0.characters }
+                    // Translate with the current layout ourselves if the HID-level event carries no text
+                    key = (fromEvent?.isEmpty == false ? fromEvent : nil)
+                        ?? translatedCharacters(for: keyCode, shift: shift, option: alt && !ctrl,
+                                                capsLock: flags.contains(.maskAlphaShift))
+                        ?? ""
                 } else {
                     key = rawBaseCharacter(for: keyCode) ?? ""
                 }
