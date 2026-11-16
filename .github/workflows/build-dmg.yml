@@ -9,7 +9,9 @@
 # System Settings › Privacy & Security › Open Anyway.
 #
 # Triggers: every push, pull requests, version tags (v*), and manually from the Actions tab.
-# The DMG is uploaded as a workflow artifact; for a v* tag it is also attached to a GitHub release.
+# Two builds run side by side, one per architecture (Apple Silicon and Intel), each producing its own,
+# smaller DMG rather than one universal app. They are uploaded as workflow artifacts; for a v* tag both
+# are also attached to a GitHub release.
 
 name: Build DMG
 
@@ -43,10 +45,20 @@ concurrency:
 
 jobs:
   build:
-    name: Build and package
+    name: Build (${{ matrix.title }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            title: Apple Silicon
+            suffix: apple-silicon
+          - arch: x86_64
+            title: Intel
+            suffix: intel
     # The project needs Xcode 26 (Icon Composer `.icon` app icon, macOS 26 SDK), which the macos-15 and
     # macos-26 images ship. Apple Silicon runners (macos-15, macos-26) were repeatedly left unassigned for
-    # lack of capacity, so the Intel image is the default; the universal app it builds runs on both.
+    # lack of capacity, so the Intel image is the default; Xcode cross-compiles the Apple Silicon build on it.
     runs-on: ${{ inputs.runner || 'macos-15-intel' }}
     timeout-minutes: 60
     env:
@@ -78,8 +90,8 @@ jobs:
           # Runs before the work tree is modified below, so the name has no "-dirty" suffix
           VERSION=$(git describe --tags --always 2>/dev/null || git rev-parse --short HEAD)
           SAFE_REF=$(echo "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" | tr '/' '-' | tr -cd '[:alnum:]._-')
-          echo "dmg_name=Soduto-${SAFE_REF}-${VERSION}.dmg" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=Soduto-${SAFE_REF}-${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "dmg_name=Soduto-${SAFE_REF}-${VERSION}-${{ matrix.suffix }}.dmg" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=Soduto-${SAFE_REF}-${VERSION}-${{ matrix.suffix }}" >> "$GITHUB_OUTPUT"
 
       - name: Write local build configuration
         run: |
@@ -105,6 +117,9 @@ jobs:
           ENABLE_HARDENED_RUNTIME = NO
           // Don't add the debugging-only get-task-allow entitlement to a distributed build
           CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO
+          // One architecture per build (this matrix entry), instead of a universal app
+          ARCHS = ${{ matrix.arch }}
+          ONLY_ACTIVE_ARCH = NO
           EOF
 
           # Sparkle's feed (SUFeedURL) is the upstream fork's appcast. Don't let this build check it
@@ -212,7 +227,12 @@ jobs:
           test -d "$APP"
           echo "Bundle id: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")"
           echo "Version:   $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist") ($(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist"))"
-          lipo -archs "$APP/Contents/MacOS/Soduto"
+          ARCHS_BUILT=$(lipo -archs "$APP/Contents/MacOS/Soduto")
+          echo "Architectures: $ARCHS_BUILT"
+          if [ "$ARCHS_BUILT" != "${{ matrix.arch }}" ]; then
+            echo "::error::Expected only ${{ matrix.arch }}, got $ARCHS_BUILT"
+            exit 1
+          fi
           codesign --verify --deep --strict --verbose=2 "$APP"
           codesign --display --entitlements - "$APP"
 
@@ -245,12 +265,23 @@ jobs:
         if: always() && steps.signing.outputs.keychain != ''
         run: security delete-keychain "${{ steps.signing.outputs.keychain }}" || true
       
-      - name: Attach DMG to release
-        if: startsWith(github.ref, 'refs/tags/v')
+  release:
+    name: Attach DMGs to release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download DMGs
+        uses: actions/download-artifact@v5
+        with:
+          pattern: Soduto-*
+          merge-multiple: true
+      
+      - name: Attach to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ steps.version.outputs.dmg_name }}
-            ${{ steps.version.outputs.dmg_name }}.sha256
+            Soduto-*.dmg
+            Soduto-*.dmg.sha256
           prerelease: true
           generate_release_notes: true

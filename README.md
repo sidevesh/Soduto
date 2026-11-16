@@ -193,7 +193,7 @@ This branch is meant to be fully testable against the stock KDE Connect Android 
 
 The [`Build DMG`](.github/workflows/build-dmg.yml) workflow builds an installable `.dmg` on a GitHub-hosted Mac (Xcode 26) for every push, pull request and `v*` tag, and on demand from the repository's **Actions** tab (**Build DMG → Run workflow**). On a fork, enable workflows once in the Actions tab first.
 
-- Download the DMG from the run's **Artifacts** section (GitHub delivers it zipped). For a `v*` tag it is also attached to a pre-release.
+- Each run builds two DMGs: `…-apple-silicon.dmg` for M-series Macs and `…-intel.dmg` for Intel Macs (no universal build). Download the one for your Mac from the run's **Artifacts** section (GitHub delivers it zipped). For a `v*` tag both are also attached to a pre-release.
 - The app is **signed ad hoc** (no Apple Developer certificate in CI) and not notarized. After dragging it to Applications, clear the quarantine flag once:
   ```bash
   xattr -dr com.apple.quarantine /Applications/Soduto.app
