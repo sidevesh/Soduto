@@ -88,6 +88,8 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     private var areSystemShortcutsPaused = false
     /// App to give focus back to when the session ends
     private var previousActiveApp: NSRunningApplication?
+    /// Invisible window over the screen with the (hidden) cursor; see `showShield()`
+    private var shieldWindow: NSWindow?
     /// `NSCursor.hide()` calls this session made (they must be balanced too)
     private var appCursorHideCount = 0
     
@@ -402,14 +404,47 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
             previousActiveApp = front
         }
+        showShield()
         NSApp.activate(ignoringOtherApps: true)
     }
     
     private func returnFocus() {
+        shieldWindow?.orderOut(nil)
+        shieldWindow = nil
         if let app = previousActiveApp, !app.isTerminated {
             app.activate(options: [])
         }
         previousActiveApp = nil
+    }
+    
+    private final class ShieldWindow: NSWindow {
+        override var canBecomeKey: Bool { true }
+        override var canBecomeMain: Bool { false }
+    }
+    
+    /// Covers the screen the cursor rests on with an invisible Soduto window for the session, so that:
+    /// - Soduto's is the window under the pointer, which mouse utilities (OpenLogi, Logi Options+) use
+    ///   to pick per-app button settings: a Soduto profile there decides what extra buttons do while
+    ///   controlling a device (their actions, such as Mission Control, bypass any event tap)
+    /// - Soduto has a key window, which makes macOS more willing to activate it
+    /// - a click can never land on a Mac app, even if the event tap briefly lets one through
+    private func showShield() {
+        let mouse = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) ?? NSScreen.main else { return }
+        let window = ShieldWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.title = "Soduto Input Capture"
+        window.level = .statusBar  // the control banner, ordered in later at the same level, stays above
+        window.isOpaque = false
+        // Practically invisible, but not fully transparent: WindowServer passes clicks through and
+        // hit-tests past pixels with zero alpha
+        window.backgroundColor = NSColor.black.withAlphaComponent(0.01)
+        window.hasShadow = false
+        window.ignoresMouseEvents = false
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        window.setFrame(screen.frame, display: false)
+        window.makeKeyAndOrderFront(nil)
+        shieldWindow = window
     }
     
     private func pauseSystemShortcuts() {

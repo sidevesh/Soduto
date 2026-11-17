@@ -156,10 +156,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
         previousLastAlive = lastAlive > 0 ? lastAlive : nil
         AppDefaultsStore.ShareExtension.appLastHeartbeat = Date().timeIntervalSince1970
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastAliveKey)
+        Self.logMemoryFootprint("at launch")
+        var ticks = 0
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
             AppDefaultsStore.ShareExtension.appLastHeartbeat = Date().timeIntervalSince1970
             UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastAliveKey)
+            ticks += 1
+            if ticks % 20 == 0 { Self.logMemoryFootprint("periodic") }  // every 10 minutes
         }
+    }
+    
+    /// Logs the memory macOS charges Soduto for (what memory-pressure kills go by), to spot growth
+    private static func logMemoryFootprint(_ when: String) {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return }
+        let megabytes = Double(info.phys_footprint) / 1_048_576
+        Logger.general.notice("Memory footprint (\(when, privacy: .public)): \(String(format: "%.1f", megabytes), privacy: .public) MB")
     }
     
     // MARK: Diagnostics
@@ -182,6 +200,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
         }
         workspace.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { _ in
             Logger.general.notice("Displays went to sleep")
+            Self.logMemoryFootprint("displays asleep")
         }
         workspace.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { _ in
             Logger.general.notice("Displays woke")
