@@ -21,7 +21,9 @@ import os
 /// - detaches the cursor from the mouse (`CGAssociateMouseAndMouseCursorPosition`) and hides it, and keeps
 ///   re-applying both, because WindowServer resets them when Spaces or the active app change
 /// - swallows trackpad gesture events (Mission Control / Spaces swipes, pinch, rotate)
-/// - also pauses system keyboard shortcuts through WindowServer as a second line of defence
+/// - makes Soduto the active app for the session (and hands focus back afterwards), like Screen Sharing
+///   and VirtualBox do while they capture the keyboard: WindowServer honours "pause system shortcuts"
+///   (⌃↑ Mission Control, ⌘Tab, Spotlight…) and hides the cursor reliably only for the active app
 ///
 /// Two ways in, sharing one capture session so they can't conflict:
 /// - **Control Device** (menu action): manual mode, until ⌥⎋
@@ -84,6 +86,10 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     private var cursorGuardTimer: Timer?
     private var workspaceObservers: [NSObjectProtocol] = []
     private var areSystemShortcutsPaused = false
+    /// App to give focus back to when the session ends
+    private var previousActiveApp: NSRunningApplication?
+    /// `NSCursor.hide()` calls this session made (they must be balanced too)
+    private var appCursorHideCount = 0
     
     /// Exposes the connected device type to the CGEvent tap callback (which has no `self`).
     var targetDeviceType: DeviceType? { targetDevice?.type }
@@ -294,8 +300,9 @@ public class RemoteControlService: OutgoingService, ObservableObject {
             return false
         }
         setupEscapeMonitor()
+        takeFocus()
         detachAndHideCursor()
-        areSystemShortcutsPaused = WindowServerPrivate.setSystemShortcutsEnabled(false)
+        pauseSystemShortcuts()
         showOverlay(for: device, mode: mode)
         return true
     }
@@ -324,6 +331,7 @@ public class RemoteControlService: OutgoingService, ObservableObject {
             areSystemShortcutsPaused = false
         }
         reattachAndShowCursor()
+        returnFocus()
         overlay.hide()
         
         // Stopping with ⌥⎋ leaves the pointer wherever it was; at the trigger edge, that must not hand
@@ -369,18 +377,53 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         cursorGuardTimer = timer
         
         let center = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didActivateApplicationNotification] {
-            workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.reassertCursorCapture(force: true)
-            })
+        workspaceObservers.append(center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.reassertCursorCapture(force: true)
+        })
+        workspaceObservers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
+            guard let self, self.isCapturing else { return }
+            let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            if app?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+                // Now active: shortcuts can actually be paused and the cursor hidden
+                self.pauseSystemShortcuts()
+                self.reassertCursorCapture(force: true)
+            } else {
+                // Something else took focus mid-session (an app launching, a dialog): take it back
+                Logger.services.notice("Input capture: \(app?.localizedName ?? "another app", privacy: .public) became active; taking focus back")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        })
+    }
+    
+    // MARK: Focus and system shortcuts
+    
+    private func takeFocus() {
+        let front = NSWorkspace.shared.frontmostApplication
+        if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            previousActiveApp = front
         }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    private func returnFocus() {
+        if let app = previousActiveApp, !app.isTerminated {
+            app.activate(options: [])
+        }
+        previousActiveApp = nil
+    }
+    
+    private func pauseSystemShortcuts() {
+        let paused = WindowServerPrivate.setSystemShortcutsEnabled(false)
+        areSystemShortcutsPaused = areSystemShortcutsPaused || paused
+        Logger.services.notice("Input capture: active=\(NSApp.isActive, privacy: .public) shortcutsPaused=\(paused, privacy: .public) cursorVisible=\(String(describing: WindowServerPrivate.isCursorVisible), privacy: .public)")
     }
     
     /// `force`: hide again even when visibility can't be read (after a Space or app change)
     private func reassertCursorCapture(force: Bool) {
         guard isCapturing else { return }
         CGAssociateMouseAndMouseCursorPosition(0)
-        if WindowServerPrivate.isCursorVisible ?? force {
+        // (capped, in case visibility reads wrong and every tick would hide once more)
+        if WindowServerPrivate.isCursorVisible ?? force, cursorHideCount < 32 {
             WindowServerPrivate.allowCursorHidingInBackground()
             hideCursor()
         }
@@ -389,6 +432,11 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     private func hideCursor() {
         if CGDisplayHideCursor(CGMainDisplayID()) == .success {
             cursorHideCount += 1
+        }
+        // The AppKit route, which works whenever Soduto is the active app
+        if NSApp.isActive {
+            NSCursor.hide()
+            appCursorHideCount += 1
         }
     }
     
@@ -405,6 +453,10 @@ public class RemoteControlService: OutgoingService, ObservableObject {
             CGDisplayShowCursor(CGMainDisplayID())
         }
         cursorHideCount = 0
+        for _ in 0..<appCursorHideCount {
+            NSCursor.unhide()
+        }
+        appCursorHideCount = 0
     }
     
     
