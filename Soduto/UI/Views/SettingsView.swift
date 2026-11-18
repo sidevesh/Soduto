@@ -165,7 +165,6 @@ struct ControlSettingsView: View {
     @AppStorage(AppDefaultsStore.Preferences.EdgeControl.edgeKey) private var edge = ScreenEdge.right.rawValue
     @AppStorage(AppDefaultsStore.Preferences.EdgeControl.deviceIdKey) private var deviceId = ""
     @AppStorage(AppDefaultsStore.Preferences.Control.suppressInterferenceWarningKey) private var suppressInterferenceWarning = false
-    @AppStorage(AppDefaultsStore.Preferences.Control.keepDockOverlaysOpenKey) private var keepDockOverlaysOpen = false
 
     @State private var showingEdgeIntro = false
 
@@ -237,10 +236,6 @@ struct ControlSettingsView: View {
 
             Section {
                 LabeledContent("Stop Controlling", value: "⌥⎋  Option-Escape")
-                Toggle(isOn: Binding(get: { !keepDockOverlaysOpen }, set: { keepDockOverlaysOpen = !$0 })) {
-                    Text("Close Mission Control Opened by Other Apps")
-                    Text("While controlling a device, close Mission Control, App Exposé and Launchpad if a mouse or trackpad utility opens them.")
-                }
                 Toggle(isOn: Binding(get: { !suppressInterferenceWarning }, set: { suppressInterferenceWarning = !$0 })) {
                     Text("Explain When Another App Acts on This Mac")
                     Text("After a session in which something like a mouse utility opened Mission Control, show which utilities are running and how to keep them off.")
@@ -262,7 +257,7 @@ struct ControlSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 560)
+        .frame(width: 520, height: 500)
         .alert("Screen Edge Control Is On", isPresented: $showingEdgeIntro) {
             Button("OK", role: .cancel) {}
         } message: {

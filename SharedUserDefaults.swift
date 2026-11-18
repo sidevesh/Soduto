@@ -125,12 +125,6 @@ enum AppDefaultsStore {
             /// Mac during a control session; off by default (warn)
             static let suppressInterferenceWarningKey = "\(base).suppressInterferenceWarning"
             
-            /// Leave Mission Control, App Exposé and Launchpad open when another app opens them during a
-            /// control session; off by default (Soduto closes them)
-            static let keepDockOverlaysOpenKey = "\(base).keepDockOverlaysOpen"
-            
-            static var keepDockOverlaysOpen: Bool { UserDefaults.standard.bool(forKey: keepDockOverlaysOpenKey) }
-            
             static var suppressInterferenceWarning: Bool {
                 get { UserDefaults.standard.bool(forKey: suppressInterferenceWarningKey) }
                 set { UserDefaults.standard.set(newValue, forKey: suppressInterferenceWarningKey) }

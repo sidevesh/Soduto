@@ -102,7 +102,6 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     private var baselineDockOverlays = Set<CGWindowID>()
     private var cursorGuardTicks = 0
     private var sessionStart = Date.distantPast
-    private var lastDockOverlayDismissal = Date.distantPast
     /// `NSCursor.hide()` calls this session made (they must be balanced too)
     private var appCursorHideCount = 0
     
@@ -403,9 +402,9 @@ public class RemoteControlService: OutgoingService, ObservableObject {
             guard let self else { return }
             self.reassertCursorCapture(force: false)
             self.cursorGuardTicks += 1
-            if !Self.dockOverlayWindowIDs().subtracting(self.baselineDockOverlays).isEmpty {
+            if self.cursorGuardTicks % 2 == 0, self.interference == nil,
+               !Self.dockOverlayWindowIDs().subtracting(self.baselineDockOverlays).isEmpty {
                 self.noteInterference("Mission Control, App Exposé or Launchpad opened")
-                self.dismissDockOverlay()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -441,23 +440,6 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         guard isCapturing, interference == nil, Date().timeIntervalSince(sessionStart) > 1.5 else { return }
         Logger.services.notice("Input capture: interference: \(description, privacy: .public)")
         interference = description
-    }
-    
-    /// Closes Mission Control / App Exposé / Launchpad (opened by a utility Soduto can't hold back) with
-    /// Escape, which also brings the hidden cursor back under control. Posted after the HID-level tap, so
-    /// capture doesn't swallow it; if nothing was open after all, it reaches Soduto (the active app) and
-    /// does nothing.
-    private func dismissDockOverlay() {
-        guard !AppDefaultsStore.Preferences.Control.keepDockOverlaysOpen,
-              Date().timeIntervalSince(lastDockOverlayDismissal) > 0.4 else { return }
-        lastDockOverlayDismissal = Date()
-        let source = CGEventSource(stateID: .privateState)
-        for isDown in [true, false] {
-            let escape = CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: isDown)
-            escape?.flags = []
-            escape?.post(tap: .cgSessionEventTap)
-        }
-        Logger.services.notice("Input capture: closing Mission Control / App Exposé / Launchpad")
     }
     
     /// Dock windows the size of a screen: Mission Control, App Exposé, Launchpad and Show Desktop put
@@ -1039,7 +1021,7 @@ enum InterferenceAlert {
         defer { isShowing = false }
         
         let utilities = runningUtilities()
-        var text = "\(whatHappened) while you were controlling \(deviceName). Soduto holds back keys, clicks, gestures and system shortcuts (and closes Mission Control, App Exposé and Launchpad when something opens them), but some mouse, trackpad and keyboard utilities trigger actions themselves.\n\n"
+        var text = "\(whatHappened) while you were controlling \(deviceName). Soduto holds back keys, clicks, gestures and system shortcuts, but some mouse, trackpad and keyboard utilities trigger actions themselves.\n\n"
         if utilities.isEmpty {
             text += "If a utility like that is running, give it a profile for Soduto (com.soduto.Soduto) that turns those actions off. Soduto is the active app while you control a device."
         } else {
