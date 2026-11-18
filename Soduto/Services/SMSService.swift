@@ -36,13 +36,7 @@ public class SMSService: NSObject, IncomingService, ObservableObject, DownloadTa
     }
     
     private static func purgeAttachmentCacheOnLaunch() {
-        guard let cachesRoot = try? FileManager.default.url(
-            for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: false
-        ) else { return }
-        let bundleId = Bundle.main.bundleIdentifier ?? "com.soduto.Soduto"
-        let dir = cachesRoot
-            .appendingPathComponent(bundleId, isDirectory: true)
-            .appendingPathComponent("sms-attachments", isDirectory: true)
+        guard let dir = FileManager.default.sodutoCacheDirectory("sms-attachments") else { return }
         guard FileManager.default.fileExists(atPath: dir.path) else { return }
         do {
             try FileManager.default.removeItem(at: dir)
@@ -574,17 +568,12 @@ public class SMSService: NSObject, IncomingService, ObservableObject, DownloadTa
     
     // MARK: Cache + file helpers
     
-    /// `~/Library/Caches/<bundle-id>/sms-attachments/<sanitized-deviceId>/`
+    /// `~/Library/Application Support/<bundle-id>/Cache/sms-attachments/<sanitized-deviceId>/`
+    /// (not ~/Library/Caches: macOS terminates the app to purge that; see `sodutoCacheDirectory`)
     private func attachmentCacheDirectory(for deviceId: Device.Id) -> URL? {
-        guard let cachesRoot = try? FileManager.default.url(
-            for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        ) else { return nil }
-        let bundleId = Bundle.main.bundleIdentifier ?? "com.soduto.Soduto"
+        guard let root = FileManager.default.sodutoCacheDirectory("sms-attachments") else { return nil }
         let safeDeviceId = StableHashing.shortSha256(deviceId, length: 32)
-        let url = cachesRoot
-            .appendingPathComponent(bundleId, isDirectory: true)
-            .appendingPathComponent("sms-attachments", isDirectory: true)
-            .appendingPathComponent(safeDeviceId, isDirectory: true)
+        let url = root.appendingPathComponent(safeDeviceId, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

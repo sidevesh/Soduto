@@ -45,6 +45,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
     // MARK: NSApplicationDelegate
     
     func applicationDidFinishLaunching(_ aNotification: Notification) {
+        // Keep nothing in Library/Caches: macOS's cache cleaner quits sandboxed apps to purge it
+        FileManager.default.clearPurgeableCaches()
+        URLCache.shared = URLCache(memoryCapacity: 8 * 1024 * 1024, diskCapacity: 0)
+        
         self.userNotificationManager = UserNotificationManager(config: self.config, serviceManager: self.serviceManager, deviceManager: self.deviceManager)
         self.config.capabilitiesDataSource = self.serviceManager
         self.connectionProvider.delegate = self.deviceManager

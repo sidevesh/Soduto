@@ -1211,9 +1211,9 @@ extension MediaPlayerService {
     }
     
     private func getCacheDirectory() -> URL {
-        // Use a proper cache directory like GSConnect
-        let cacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        return cacheDirectory.appendingPathComponent("com.soduto.mpris", isDirectory: true)
+        // Not ~/Library/Caches: macOS terminates the app to purge that (see `sodutoCacheDirectory`)
+        FileManager.default.sodutoCacheDirectory("mpris")
+            ?? URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("com.soduto.mpris", isDirectory: true)
     }
     
     private func streamForTempDownload() -> (TempDownloadStream, URL)? {
