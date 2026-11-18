@@ -464,6 +464,22 @@ Soduto and KDE Connect use SSL/TLS with self-signed certificates to secure commu
 
 After clearing the cache, the new certificate will be accepted and cached correctly.
 
+### 3. Mouse buttons, gestures or shortcuts still act on the Mac while controlling a device
+
+While you control a device (**Control Device** or the screen edge), Soduto captures the keyboard, mouse and trackpad, pauses system shortcuts, and becomes the active app with an invisible window over the screen. Some utilities run actions themselves, without a key or mouse event Soduto could capture, so they still fire: extra mouse buttons in **Logi Options+**, **OpenLogi**, **Razer Synapse**; trackpad and mouse gestures in **BetterTouchTool**, **Swish**, **Multitouch**, **Jitouch**; actions in **Mac Mouse Fix**, **SteerMouse**, **USB Overdrive**; Karabiner-Elements rules that run commands.
+
+Give them a profile for Soduto (bundle identifier `com.soduto.Soduto`) that turns those actions off, or maps them to something useful on the device (⌘⇧R is Recents, ⌘[ is Back, ⌘⇧H is Home on Android). Control a device once first, so Soduto appears in the app's list of recent applications.
+
+| App | Where |
+|---|---|
+| OpenLogi | Profile selector › Soduto (matches the window under the pointer, which is Soduto's while controlling) |
+| Logi Options+ | Add application › Soduto (follows the active app) |
+| BetterTouchTool | Add a Soduto app-specific group in the sidebar and disable the gestures there |
+| Karabiner-Elements | Add `"conditions": [{ "type": "frontmost_application_unless", "bundle_identifiers": ["^com\\.soduto\\.Soduto$"] }]` to the rule |
+| Others | Look for app-specific or per-application settings |
+
+Universal Control, Deskflow, Barrier, Input Leap and ShareMouse also take over the keyboard and mouse at a screen edge: don't use the same edge for Soduto.
+
 ---
 ## Documentation & Resources
 

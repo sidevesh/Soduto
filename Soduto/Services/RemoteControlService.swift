@@ -90,6 +90,8 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     private var previousActiveApp: NSRunningApplication?
     /// Invisible window over the screen with the (hidden) cursor; see `showShield()`
     private var shieldWindow: NSWindow?
+    /// Last time focus was taken back from another app (rate-limited so two apps can't fight over it)
+    private var lastFocusReclaim = Date.distantPast
     /// `NSCursor.hide()` calls this session made (they must be balanced too)
     private var appCursorHideCount = 0
     
@@ -391,8 +393,10 @@ public class RemoteControlService: OutgoingService, ObservableObject {
                 self.reassertCursorCapture(force: true)
             } else {
                 // Something else took focus mid-session (an app launching, a dialog): take it back
+                guard Date().timeIntervalSince(self.lastFocusReclaim) > 1 else { return }
+                self.lastFocusReclaim = Date()
                 Logger.services.notice("Input capture: \(app?.localizedName ?? "another app", privacy: .public) became active; taking focus back")
-                NSApp.activate(ignoringOtherApps: true)
+                self.activateSoduto()
             }
         })
     }
@@ -405,7 +409,16 @@ public class RemoteControlService: OutgoingService, ObservableObject {
             previousActiveApp = front
         }
         showShield()
+        activateSoduto()
+    }
+    
+    /// `NSApp.activate` alone is only a request that macOS 14+ refuses to a background app, so also
+    /// bring the shield window's process to the front directly
+    private func activateSoduto() {
+        let broughtToFront = shieldWindow.map { WindowServerPrivate.bringToFront(windowNumber: $0.windowNumber) } ?? false
+        shieldWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        Logger.services.notice("Input capture: brought to front=\(broughtToFront, privacy: .public)")
     }
     
     private func returnFocus() {

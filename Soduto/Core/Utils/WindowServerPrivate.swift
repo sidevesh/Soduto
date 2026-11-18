@@ -7,6 +7,7 @@
 
 import Foundation
 import CoreGraphics
+import ApplicationServices
 import os
 
 /// Private WindowServer (CoreGraphics/SkyLight) calls that input-sharing apps such as Barrier, Deskflow
@@ -15,6 +16,8 @@ import os
 /// - pausing system keyboard shortcuts (⌘Tab, Mission Control, Spotlight…), which WindowServer handles
 ///   before any event tap sees the keys
 /// - letting a background app hide the cursor (normally only the frontmost app can)
+/// - bringing Soduto to the front, which macOS 14+ otherwise refuses to a background app that the user
+///   didn't just click (`NSApp.activate` is only a request); the same call window switchers use
 ///
 /// The symbols are resolved at runtime, so if a future macOS drops them the calls simply do nothing.
 enum WindowServerPrivate {
@@ -23,6 +26,8 @@ enum WindowServerPrivate {
     private typealias SetHotKeyModeFunction = @convention(c) (Int32, Int32) -> Int32
     private typealias SetConnectionPropertyFunction = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
     private typealias CursorIsVisibleFunction = @convention(c) () -> UInt32
+    private typealias GetProcessForPIDFunction = @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
+    private typealias SetFrontProcessFunction = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UInt32, UInt32) -> Int32
 
     /// `CGSGlobalHotKeyOperatingMode` values
     private enum HotKeyMode: Int32 {
@@ -32,9 +37,12 @@ enum WindowServerPrivate {
 
     private static let defaultHandle = UnsafeMutableRawPointer(bitPattern: -2)  // RTLD_DEFAULT
 
+    /// SkyLight hosts the SLS* symbols; AppKit loads it anyway, this just makes sure
+    private static let skyLightHandle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+    
     private static func function<T>(_ names: [String], as type: T.Type) -> T? {
         for name in names {
-            if let pointer = dlsym(defaultHandle, name) {
+            if let pointer = dlsym(defaultHandle, name) ?? skyLightHandle.flatMap({ dlsym($0, name) }) {
                 return unsafeBitCast(pointer, to: type)
             }
         }
@@ -50,6 +58,24 @@ enum WindowServerPrivate {
     /// `CGCursorIsVisible` is still exported but no longer callable from Swift
     private static let cursorIsVisible: CursorIsVisibleFunction? =
         function(["CGCursorIsVisible", "CGSCursorIsVisible"], as: CursorIsVisibleFunction.self)
+    
+    private static let getProcessForPID: GetProcessForPIDFunction? =
+        function(["GetProcessForPID"], as: GetProcessForPIDFunction.self)
+    private static let setFrontProcess: SetFrontProcessFunction? =
+        function(["_SLPSSetFrontProcessWithOptions", "SLPSSetFrontProcessWithOptions"], as: SetFrontProcessFunction.self)
+    
+    /// Makes this app the frontmost (active) app with `window` in front, as if the user had chosen it.
+    @discardableResult
+    static func bringToFront(windowNumber: Int) -> Bool {
+        guard let getProcessForPID, let setFrontProcess else {
+            Logger.services.notice("WindowServer front process API unavailable")
+            return false
+        }
+        var psn = ProcessSerialNumber()
+        guard getProcessForPID(getpid(), &psn) == noErr else { return false }
+        let userGenerated: UInt32 = 0x200  // kCPSUserGenerated
+        return setFrontProcess(&psn, UInt32(truncatingIfNeeded: windowNumber), userGenerated) == 0
+    }
     
     /// Whether the cursor is currently shown, or nil if that can't be determined
     static var isCursorVisible: Bool? {
