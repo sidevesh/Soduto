@@ -117,6 +117,20 @@ enum AppDefaultsStore {
             static var deviceId: String { UserDefaults.standard.string(forKey: deviceIdKey) ?? "" }
         }
         
+        // MARK: Control
+        
+        enum Control {
+            fileprivate static let base = "\(Preferences.base).control"
+            /// Set from the "Don't show again" box of the alert that explains other apps acting on the
+            /// Mac during a control session; off by default (warn)
+            static let suppressInterferenceWarningKey = "\(base).suppressInterferenceWarning"
+            
+            static var suppressInterferenceWarning: Bool {
+                get { UserDefaults.standard.bool(forKey: suppressInterferenceWarningKey) }
+                set { UserDefaults.standard.set(newValue, forKey: suppressInterferenceWarningKey) }
+            }
+        }
+        
         // MARK: Menu Bar
         
         /// What the menu bar icon shows while exactly one device is connected (otherwise the Soduto icon)

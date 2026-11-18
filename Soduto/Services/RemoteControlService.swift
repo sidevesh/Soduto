@@ -92,6 +92,16 @@ public class RemoteControlService: OutgoingService, ObservableObject {
     private var shieldWindow: NSWindow?
     /// Last time focus was taken back from another app (rate-limited so two apps can't fight over it)
     private var lastFocusReclaim = Date.distantPast
+    
+    /// The first sign this session that something acted on the Mac anyway (a Space switch, another app
+    /// coming forward, Mission Control opening); explained when the session ends
+    private var interference: String?
+    /// Name of the device controlled this session, for that explanation
+    private var sessionDeviceName = ""
+    /// Screen-sized Dock windows already on screen when the session started (see `dockOverlayWindowIDs`)
+    private var baselineDockOverlays = Set<CGWindowID>()
+    private var cursorGuardTicks = 0
+    private var sessionStart = Date.distantPast
     /// `NSCursor.hide()` calls this session made (they must be balanced too)
     private var appCursorHideCount = 0
     
@@ -290,6 +300,11 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         targetDevice = device
         captureMode = mode
         isCapturing = true
+        interference = nil
+        sessionDeviceName = device.name
+        sessionStart = Date()
+        baselineDockOverlays = Self.dockOverlayWindowIDs()
+        cursorGuardTicks = 0
         isDragging = false
         optionKeyPressed = false
         edgeTrigger.stop()
@@ -343,6 +358,15 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         updateEdgeTrigger()
         edgeTrigger.disarmUntilPointerLeavesEdge()
         
+        if let interference {
+            let deviceName = sessionDeviceName
+            self.interference = nil
+            // After focus has gone back and the banner is gone
+            DispatchQueue.main.async {
+                InterferenceAlert.show(whatHappened: interference, deviceName: deviceName)
+            }
+        }
+        
         Logger.services.info("Input capture stopped")
     }
     
@@ -375,13 +399,20 @@ public class RemoteControlService: OutgoingService, ObservableObject {
         hideCursor()
         
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            self?.reassertCursorCapture(force: false)
+            guard let self else { return }
+            self.reassertCursorCapture(force: false)
+            self.cursorGuardTicks += 1
+            if self.cursorGuardTicks % 2 == 0, self.interference == nil,
+               !Self.dockOverlayWindowIDs().subtracting(self.baselineDockOverlays).isEmpty {
+                self.noteInterference("Mission Control, App Exposé or Launchpad opened")
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         cursorGuardTimer = timer
         
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.noteInterference("The Mac switched to another Space")
             self?.reassertCursorCapture(force: true)
         })
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
@@ -393,12 +424,42 @@ public class RemoteControlService: OutgoingService, ObservableObject {
                 self.reassertCursorCapture(force: true)
             } else {
                 // Something else took focus mid-session (an app launching, a dialog): take it back
+                self.noteInterference("\(app?.localizedName ?? "Another app") came to the front")
                 guard Date().timeIntervalSince(self.lastFocusReclaim) > 1 else { return }
                 self.lastFocusReclaim = Date()
                 Logger.services.notice("Input capture: \(app?.localizedName ?? "another app", privacy: .public) became active; taking focus back")
                 self.activateSoduto()
             }
         })
+    }
+    
+    // MARK: Interference
+    
+    private func noteInterference(_ description: String) {
+        // Taking focus at the start can itself switch Spaces or shuffle apps; that isn't interference
+        guard isCapturing, interference == nil, Date().timeIntervalSince(sessionStart) > 1.5 else { return }
+        Logger.services.notice("Input capture: interference: \(description, privacy: .public)")
+        interference = description
+    }
+    
+    /// Dock windows the size of a screen: Mission Control, App Exposé, Launchpad and Show Desktop put
+    /// these up. Window owner, number and bounds need no Screen Recording permission.
+    private static func dockOverlayWindowIDs() -> Set<CGWindowID> {
+        guard let dockPID = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first?.processIdentifier,
+              let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        else { return [] }
+        let screenSizes = NSScreen.screens.map(\.frame.size)
+        var ids = Set<CGWindowID>()
+        for window in windows {
+            guard (window[kCGWindowOwnerPID as String] as? pid_t) == dockPID,
+                  let number = window[kCGWindowNumber as String] as? CGWindowID,
+                  let boundsDictionary = window[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDictionary) else { continue }
+            if screenSizes.contains(where: { bounds.width >= $0.width * 0.9 && bounds.height >= $0.height * 0.9 }) {
+                ids.insert(number)
+            }
+        }
+        return ids
     }
     
     // MARK: Focus and system shortcuts
@@ -887,4 +948,101 @@ fileprivate extension DataPacket {
     static let shareInputDevicesRequestPacketType = "kdeconnect.shareinputdevices.request"
     
     var isMousePadKeyboardStatePacket: Bool { type == DataPacket.mousePadKeyboardStatePacketType }
+}
+
+
+// MARK: - Interference alert
+
+/// Explains, after a control session, that something on the Mac acted anyway, naming the input utilities
+/// that are running and how to give each a Soduto profile. Has a "Don't show this again" box (also in
+/// Settings › Control).
+enum InterferenceAlert {
+    
+    /// A running utility known to act on input by itself, beyond what an event tap can hold back
+    struct Utility {
+        let name: String
+        let advice: String
+    }
+    
+    private struct Known {
+        let name: String
+        /// Lowercased bundle identifier prefixes
+        let bundlePrefixes: [String]
+        /// Lowercased fragments of the app or executable name, for helpers without a bundle identifier
+        let nameFragments: [String]
+        let advice: String
+    }
+    
+    private static let perAppProfile = "Look for its app-specific settings and add Soduto (com.soduto.Soduto) with those actions turned off; if it has none, pause it while you control a device."
+    
+    private static let known: [Known] = [
+        Known(name: "OpenLogi", bundlePrefixes: [], nameFragments: ["openlogi"],
+              advice: "In OpenLogi’s Profile selector, choose Soduto and turn off Mission Control and other actions on its buttons."),
+        Known(name: "Logi Options+", bundlePrefixes: ["com.logi.", "com.logitech."], nameFragments: ["logioptions", "logi options"],
+              advice: "In Logi Options+, use Add application › Soduto and set its buttons to do nothing there."),
+        Known(name: "BetterTouchTool", bundlePrefixes: ["com.hegenberg.bettertouchtool"], nameFragments: ["bettertouchtool"],
+              advice: "In BetterTouchTool, add Soduto as an app-specific group and disable the gestures and buttons that act on the Mac."),
+        Known(name: "Karabiner-Elements", bundlePrefixes: ["org.pqrs."], nameFragments: ["karabiner"],
+              advice: "In Karabiner-Elements, add a frontmost_application_unless condition for com.soduto.Soduto to rules that run commands or open apps."),
+        Known(name: "Mac Mouse Fix", bundlePrefixes: ["com.nuebling.mac-mouse-fix"], nameFragments: ["mac mouse fix"], advice: perAppProfile),
+        Known(name: "SteerMouse", bundlePrefixes: ["jp.plentycom."], nameFragments: ["steermouse"], advice: perAppProfile),
+        Known(name: "USB Overdrive", bundlePrefixes: [], nameFragments: ["usb overdrive", "usboverdrive"], advice: perAppProfile),
+        Known(name: "LinearMouse", bundlePrefixes: ["com.lujjjh.linearmouse"], nameFragments: ["linearmouse"], advice: perAppProfile),
+        Known(name: "Razer Synapse", bundlePrefixes: ["com.razerzone."], nameFragments: ["razer synapse"], advice: perAppProfile),
+        Known(name: "Swish", bundlePrefixes: ["co.highlyopinionated.swish"], nameFragments: ["swish"], advice: perAppProfile),
+        Known(name: "Multitouch", bundlePrefixes: [], nameFragments: ["multitouch"], advice: perAppProfile),
+        Known(name: "Jitouch", bundlePrefixes: [], nameFragments: ["jitouch"], advice: perAppProfile),
+        Known(name: "Deskflow / Barrier / Input Leap", bundlePrefixes: [], nameFragments: ["deskflow", "barrier", "input-leap", "inputleap"],
+              advice: "It shares the keyboard and mouse at screen edges too; don’t use the same edge for both."),
+        Known(name: "ShareMouse", bundlePrefixes: [], nameFragments: ["sharemouse"],
+              advice: "It shares the keyboard and mouse at screen edges too; don’t use the same edge for both."),
+    ]
+    
+    /// Known utilities that are running now (running apps and helpers, matched by bundle id or name)
+    static func runningUtilities() -> [Utility] {
+        let running = NSWorkspace.shared.runningApplications.map { app in
+            (bundle: app.bundleIdentifier?.lowercased() ?? "",
+             names: [app.localizedName, app.executableURL?.lastPathComponent].compactMap { $0?.lowercased() })
+        }
+        return known.compactMap { utility in
+            let isRunning = running.contains { app in
+                utility.bundlePrefixes.contains { !app.bundle.isEmpty && app.bundle.hasPrefix($0) }
+                    || utility.nameFragments.contains { fragment in app.names.contains { $0.contains(fragment) } }
+            }
+            return isRunning ? Utility(name: utility.name, advice: utility.advice) : nil
+        }
+    }
+    
+    private static var isShowing = false
+    
+    static func show(whatHappened: String, deviceName: String) {
+        guard !AppDefaultsStore.Preferences.Control.suppressInterferenceWarning, !isShowing else { return }
+        isShowing = true
+        defer { isShowing = false }
+        
+        let utilities = runningUtilities()
+        var text = "\(whatHappened) while you were controlling \(deviceName). Soduto holds back keys, clicks, gestures and system shortcuts, but some mouse, trackpad and keyboard utilities trigger actions themselves.\n\n"
+        if utilities.isEmpty {
+            text += "If a utility like that is running, give it a profile for Soduto (com.soduto.Soduto) that turns those actions off. Soduto is the active app while you control a device."
+        } else {
+            text += "Running on this Mac:\n"
+            for utility in utilities {
+                text += "\n• \(utility.name): \(utility.advice)\n"
+            }
+        }
+        text += "\n\nTip: map a button to ⌘⇧R, ⌘[ or ⌘⇧H instead to send Recents, Back or Home to an Android device."
+        
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Your Mac reacted while you were controlling \(deviceName)"
+        alert.informativeText = text
+        alert.addButton(withTitle: "OK")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don’t show this again"
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+        if alert.suppressionButton?.state == .on {
+            AppDefaultsStore.Preferences.Control.suppressInterferenceWarning = true
+        }
+    }
 }

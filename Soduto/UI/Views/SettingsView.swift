@@ -164,6 +164,7 @@ struct ControlSettingsView: View {
     @AppStorage(AppDefaultsStore.Preferences.EdgeControl.enabledKey) private var edgeControlEnabled = false
     @AppStorage(AppDefaultsStore.Preferences.EdgeControl.edgeKey) private var edge = ScreenEdge.right.rawValue
     @AppStorage(AppDefaultsStore.Preferences.EdgeControl.deviceIdKey) private var deviceId = ""
+    @AppStorage(AppDefaultsStore.Preferences.Control.suppressInterferenceWarningKey) private var suppressInterferenceWarning = false
 
     @State private var showingEdgeIntro = false
 
@@ -235,6 +236,10 @@ struct ControlSettingsView: View {
 
             Section {
                 LabeledContent("Stop Controlling", value: "⌥⎋  Option-Escape")
+                Toggle(isOn: Binding(get: { !suppressInterferenceWarning }, set: { suppressInterferenceWarning = !$0 })) {
+                    Text("Explain When Another App Acts on This Mac")
+                    Text("After a session in which something like a mouse utility opened Mission Control, show which utilities are running and how to keep them off.")
+                }
                 LabeledContent {
                     if model.isAccessibilityGranted {
                         Label("Allowed", systemImage: "checkmark.circle.fill")
@@ -252,7 +257,7 @@ struct ControlSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 440)
+        .frame(width: 520, height: 500)
         .alert("Screen Edge Control Is On", isPresented: $showingEdgeIntro) {
             Button("OK", role: .cancel) {}
         } message: {
