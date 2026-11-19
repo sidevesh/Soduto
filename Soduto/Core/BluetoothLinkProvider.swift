@@ -48,7 +48,7 @@ public final class BluetoothLinkProvider: NSObject, IOBluetoothDeviceAsyncCallba
 
     private lazy var serviceSDPUUID: IOBluetoothSDPUUID = {
         let bytes = BluetoothMultiplexer.bytes(of: Self.serviceUUID)
-        return bytes.withUnsafeBytes { IOBluetoothSDPUUID(bytes: $0.baseAddress, length: UInt32($0.count)) }
+        return bytes.withUnsafeBytes { IOBluetoothSDPUUID(bytes: $0.baseAddress, length: $0.count) }
     }()
 
     public init(config: ConnectionConfiguration) {

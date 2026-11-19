@@ -129,15 +129,15 @@ final class BluetoothLink: NSObject, DeviceLink, PairingHandlerDelegate, @unchec
         if packet.payloadInfo != nil {
             packet.downloadTask = DownloadTask(packet: packet, multiplexer: multiplexer, writeQueue: downloadQueue, delegateQueue: .main)
         }
-        let packet = packet
+        let received = packet
         DispatchQueue.main.async { [weak self] in
             guard let self, self.state == .Open else { return }
-            if packet.type == DataPacket.pairingPacketType {
-                self.handlePairingPacket(packet)
-            } else if packet.isIdentityPacket {
+            if received.type == DataPacket.pairingPacketType {
+                self.handlePairingPacket(received)
+            } else if received.isIdentityPacket {
                 // Identity was exchanged in the handshake; a later one changes nothing
             } else {
-                self.delegate?.link(self, didReadPacket: packet)
+                self.delegate?.link(self, didReadPacket: received)
             }
         }
     }

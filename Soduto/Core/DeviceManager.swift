@@ -103,7 +103,7 @@ public class DeviceManager: ConnectionProviderDelegate, BluetoothLinkProviderDel
     // MARK: BluetoothLinkProviderDelegate
     
     public func bluetoothLinkProvider(_ provider: BluetoothLinkProvider, didCreateLink link: DeviceLink) {
-        Logger.device.debug("bluetoothLinkProvider didCreateLink:<\(link, privacy: .public)>")
+        Logger.device.debug("bluetoothLinkProvider didCreateLink:<\(link.description, privacy: .public)>")
         self.add(link: link)
     }
     
