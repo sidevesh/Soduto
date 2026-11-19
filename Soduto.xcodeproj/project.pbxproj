@@ -131,7 +131,6 @@
 		8438A9261E45145F00922155 /* StatusBarApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8438A9251E45145F00922155 /* StatusBarApplication.swift */; };
 		843B67041DF1E64A00289EC9 /* ShareService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843B67031DF1E64A00289EC9 /* ShareService.swift */; };
 		843B670C1DF3087800289EC9 /* URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843B670B1DF3087800289EC9 /* URL.swift */; };
-		843E170E1E25851D001D0444 /* IO.m in Sources */ = {isa = PBXBuildFile; fileRef = 843E170D1E25851D001D0444 /* IO.m */; };
 		8440FCF71E6CA68300E5BFA9 /* FileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8440FCF61E6CA68300E5BFA9 /* FileSystem.swift */; };
 		8440FD071E6CA6CA00E5BFA9 /* LocalFileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8440FD061E6CA6CA00E5BFA9 /* LocalFileSystem.swift */; };
 		844AF28F1ED6185100422B7F /* DevicesList.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 844AF28E1ED6185100422B7F /* DevicesList.storyboard */; };
@@ -181,7 +180,6 @@
 		84FA45E81DDE088B00EF3992 /* ServiceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84FA45E71DDE088B00EF3992 /* ServiceManager.swift */; };
 		84FA45EA1DDF433400EF3992 /* Service.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84FA45E91DDF433300EF3992 /* Service.swift */; };
 		84FA45ED1DDF525200EF3992 /* PingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84FA45EC1DDF525200EF3992 /* PingService.swift */; };
-		84FFDA2A1E1D8D370069AC9A /* SimplePing.m in Sources */ = {isa = PBXBuildFile; fileRef = 84FFDA291E1D8D370069AC9A /* SimplePing.m */; };
 		8FC977F11D4778E9001ADF7E /* StatusBarMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FC977F01D4778E9001ADF7E /* StatusBarMenuController.swift */; };
 		F80E30722DBE0D880047D068 /* RemoteControlService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80E30712DBE0D880047D068 /* RemoteControlService.swift */; };
 		9E95A63A661BF999AA1E0587 /* ScreenEdgeTrigger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D409AA90C2CE0FECFA2693 /* ScreenEdgeTrigger.swift */; };
@@ -376,12 +374,9 @@
 		8438ECE01EBA650A006CBB07 /* Soduto_Files.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Soduto_Files.entitlements; sourceTree = "<group>"; };
 		843B67031DF1E64A00289EC9 /* ShareService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ShareService.swift; sourceTree = "<group>"; };
 		843B670B1DF3087800289EC9 /* URL.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = URL.swift; sourceTree = "<group>"; };
-		843E170C1E25851D001D0444 /* IO.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = IO.h; sourceTree = "<group>"; };
-		843E170D1E25851D001D0444 /* IO.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = IO.m; sourceTree = "<group>"; };
 		8440FCF61E6CA68300E5BFA9 /* FileSystem.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = FileSystem.swift; sourceTree = "<group>"; };
 		8440FD061E6CA6CA00E5BFA9 /* LocalFileSystem.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LocalFileSystem.swift; sourceTree = "<group>"; };
 		844AF28E1ED6185100422B7F /* DevicesList.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; path = DevicesList.storyboard; sourceTree = "<group>"; };
-		8454D12C1D34228D00788632 /* Soduto-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Soduto-Bridging-Header.h"; sourceTree = "<group>"; };
 		8456F4A71D7DE393006EFE19 /* Pairable.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Pairable.swift; sourceTree = "<group>"; };
 		8456F4A91D7DEA47006EFE19 /* DefaultPairingHandler.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = DefaultPairingHandler.swift; sourceTree = "<group>"; };
 		8458472F1E75D33600EE5A09 /* URL.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = URL.swift; sourceTree = "<group>"; };
@@ -428,8 +423,6 @@
 		84FA45E71DDE088B00EF3992 /* ServiceManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ServiceManager.swift; sourceTree = "<group>"; };
 		84FA45E91DDF433300EF3992 /* Service.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Service.swift; sourceTree = "<group>"; };
 		84FA45EC1DDF525200EF3992 /* PingService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PingService.swift; sourceTree = "<group>"; };
-		84FFDA1F1E1D8D0D0069AC9A /* SimplePing.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SimplePing.h; sourceTree = "<group>"; };
-		84FFDA291E1D8D370069AC9A /* SimplePing.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = SimplePing.m; sourceTree = "<group>"; };
 		8FC977F01D4778E9001ADF7E /* StatusBarMenuController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = StatusBarMenuController.swift; sourceTree = "<group>"; };
 		F80E30712DBE0D880047D068 /* RemoteControlService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlService.swift; sourceTree = "<group>"; };
 		83D409AA90C2CE0FECFA2693 /* ScreenEdgeTrigger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenEdgeTrigger.swift; sourceTree = "<group>"; };
@@ -694,7 +687,6 @@
 			isa = PBXGroup;
 			children = (
 				841E814C1D809C360096A846 /* Soduto.entitlements */,
-				8454D12C1D34228D00788632 /* Soduto-Bridging-Header.h */,
 				0236D2B81F9CFB2500E0F6A6 /* Acknowledgements.html */,
 				0236D2AD1F9CFB1A00E0F6A6 /* License.html */,
 				31905C1F2F78865B00F259CE /* Icon.icon */,
@@ -831,8 +823,6 @@
 			isa = PBXGroup;
 			children = (
 				8436DEF91E958ABA00529362 /* FileManager.swift */,
-				843E170C1E25851D001D0444 /* IO.h */,
-				843E170D1E25851D001D0444 /* IO.m */,
 				317F93082FAD451300CDC0EC /* KeyboardUtils.swift */,
 				D8E73E288D41CC00C217D37A /* WindowServerPrivate.swift */,
 				38E0A2E8F804E0C273BB431C /* AccessibilityPermission.swift */,
@@ -840,8 +830,6 @@
 				8468BDFF1DEB7F97003B9925 /* NetworkUtils.swift */,
 				31965FFE2FDF29B9003A3B77 /* NotificationThreadPolicy.swift */,
 				31AB4B5B2F59761400FE3DD4 /* OTPExtractor.swift */,
-				84FFDA1F1E1D8D0D0069AC9A /* SimplePing.h */,
-				84FFDA291E1D8D370069AC9A /* SimplePing.m */,
 				311BC28C2F2800D400E4A33F /* StableHashing.swift */,
 				317C4DF52F8A88AD00067638 /* SystemMediaController.swift */,
 				8436DEF71E956DA000529362 /* Timer.swift */,
@@ -1163,7 +1151,6 @@
 				31E059DD2F7044540019F4FE /* WaveSeekBar.swift in Sources */,
 				84651A761E5AEBE100D17601 /* SftpService.swift in Sources */,
 				31E059E12F70B4DD0019F4FE /* VolumeBar.swift in Sources */,
-				84FFDA2A1E1D8D370069AC9A /* SimplePing.m in Sources */,
 				311BC28F2F2865A200E4A33F /* UserNotificationHelper.swift in Sources */,
 				3105288B2F49274400488ED4 /* MDNSDiscoveryProvider.swift in Sources */,
 				31A421952F43B526003B97FC /* PayloadPortRegistry.swift in Sources */,
@@ -1206,7 +1193,6 @@
 				31AB4B5A2F5975E000FE3DD4 /* HUDToast.swift in Sources */,
 				8317201B941613AE74A2AF42 /* ControlOverlay.swift in Sources */,
 				842B50571E4295D200969AA7 /* UnifiedTitlebarWindow.swift in Sources */,
-				843E170E1E25851D001D0444 /* IO.m in Sources */,
 				8468BE001DEB7F97003B9925 /* NetworkUtils.swift in Sources */,
 				84D903A21DC696A600E61DA7 /* CertificateUtils.swift in Sources */,
 				31AF2B0F2F6C2F03002C7D38 /* PresenterService.swift in Sources */,
@@ -1539,7 +1525,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "$(BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_INCLUDE_PATHS = "";
-				SWIFT_OBJC_BRIDGING_HEADER = "Soduto/Soduto-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_SWIFT3_OBJC_INFERENCE = Off;
 				SWIFT_VERSION = 5.0;
@@ -1569,7 +1554,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "$(BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_INCLUDE_PATHS = "";
-				SWIFT_OBJC_BRIDGING_HEADER = "Soduto/Soduto-Bridging-Header.h";
 				SWIFT_SWIFT3_OBJC_INFERENCE = Off;
 				SWIFT_VERSION = 5.0;
 			};

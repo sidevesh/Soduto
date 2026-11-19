@@ -43,3 +43,19 @@ extension FileManager {
     
     
 }
+
+
+/// Takes an exclusive lock on the file at `path` for the rest of the process's life (the descriptor is
+/// left open on purpose; the system releases the lock when the process exits). Returns false if
+/// another process already holds it, which is how a second copy of Soduto notices the first.
+func tryLock(_ path: String) -> Bool {
+    let created = open(path, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
+    if created == -1 && errno != EEXIST {
+        return false
+    }
+    if created != -1 {
+        close(created)
+    }
+    let locked = open(path, O_EXLOCK | O_NONBLOCK | O_RDWR)
+    return !(locked == -1 && errno == EWOULDBLOCK)
+}

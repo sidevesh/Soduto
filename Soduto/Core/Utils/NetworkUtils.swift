@@ -76,115 +76,62 @@ public struct NetworkUtils {
     
     // Public static methods
     
+    // Routing-socket layouts from <net/route.h>, <netinet/if_ether.h> and <net/if_dl.h>, which aren't
+    // part of Swift's Darwin module. Each ARP entry is an rt_msghdr followed by a sockaddr_inarp (same
+    // size and sin_addr offset as sockaddr_in) and a sockaddr_dl.
+    private static let routeMessageHeaderSize = 92        // sizeof(struct rt_msghdr)
+    private static let netRouteFlags: Int32 = 2           // NET_RT_FLAGS
+    private static let routeFlagLinkLayerInfo: Int32 = 0x400  // RTF_LLINFO
+    private static let linkLayerNameLengthOffset = 5      // sockaddr_dl.sdl_nlen
+    private static let linkLayerAddressLengthOffset = 6   // sockaddr_dl.sdl_alen
+    private static let linkLayerDataOffset = 8            // sockaddr_dl.sdl_data
+    
+    /// The IPv4 entries of the ARP table, with their hardware addresses when resolved
     public static func accessibleIPv4Addresses() throws -> [ArpInfo] {
+        var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, AF_INET, netRouteFlags, routeFlagLinkLayerInfo]
         
-        // Check required buffer size
-        var neededBufferSize: size_t = 0
-        var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, AF_INET, NET_RT_FLAGS, RTF_LLINFO]
-        guard sysctl(&mib, 6, nil, &neededBufferSize, nil, 0) >= 0 else { throw NetworkError.routeSysctlEstimateFailed }
-        
-        // Retry loop: the ARP table can grow between the estimate and retrieval
-        // calls (TOCTOU race), causing the second sysctl to fail with ENOMEM.
-        var buffer = [UInt8](repeating: 0, count: neededBufferSize)
-        var tableSize: size_t = neededBufferSize
-        var retries = 3
-        while sysctl(&mib, 6, &buffer, &tableSize, nil, 0) < 0 {
-            retries -= 1
-            guard retries > 0 else { throw NetworkError.routingTableRetrievalFailed }
-            // Re-estimate and reallocate
-            guard sysctl(&mib, 6, nil, &neededBufferSize, nil, 0) >= 0 else { throw NetworkError.routeSysctlEstimateFailed }
-            buffer = [UInt8](repeating: 0, count: neededBufferSize)
-            tableSize = neededBufferSize
+        // The table can grow between the size estimate and the read; retry a few times
+        var buffer: [UInt8] = []
+        var tableSize = 0
+        var attempts = 3
+        while true {
+            var needed = 0
+            guard sysctl(&mib, u_int(mib.count), nil, &needed, nil, 0) >= 0 else { throw NetworkError.routeSysctlEstimateFailed }
+            buffer = [UInt8](repeating: 0, count: needed)
+            tableSize = needed
+            if sysctl(&mib, u_int(mib.count), &buffer, &tableSize, nil, 0) >= 0 { break }
+            attempts -= 1
+            guard attempts > 0 else { throw NetworkError.routingTableRetrievalFailed }
         }
         
-        // Read routing table
         var addresses: [ArpInfo] = []
-        buffer.withUnsafeBufferPointer { pointer in
-            guard let bufferPtr = UnsafeRawBufferPointer(pointer).baseAddress else { return }
-            
-            var pos = 0
-            while pos < tableSize {
-                let rtm = bufferPtr.advanced(by: pos).assumingMemoryBound(to: rt_msghdr.self)
-                let sin = UnsafeRawPointer(rtm.advanced(by: 1)).assumingMemoryBound(to: sockaddr_inarp.self)
-                let sdl = UnsafeRawPointer(sin.advanced(by: 1)).assumingMemoryBound(to: sockaddr_dl.self)
+        buffer.withUnsafeBytes { table in
+            var position = 0
+            while position + routeMessageHeaderSize + MemoryLayout<sockaddr_in>.size <= tableSize {
+                let messageLength = Int(table.loadUnaligned(fromByteOffset: position, as: UInt16.self))
+                guard messageLength > 0 else { break }
+                defer { position += messageLength }
                 
-                let sin_addr = sin.pointee.sin_addr
-                // Use inet_ntop instead of inet_ntoa — the latter uses a process-wide static buffer and is not thread-safe.
-                var addrCopy = sin_addr
-                var ipBuf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-                let ipAddressString: String
-                if let cStr = inet_ntop(AF_INET, &addrCopy, &ipBuf, socklen_t(ipBuf.count)) {
-                    ipAddressString = String(cString: cStr)
-                } else {
-                    ipAddressString = "0.0.0.0"
-                }
+                let inetOffset = position + routeMessageHeaderSize
+                let inet = table.loadUnaligned(fromByteOffset: inetOffset, as: sockaddr_in.self)
+                var address = inet.sin_addr
+                var text = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                let ipAddressString = inet_ntop(AF_INET, &address, &text, socklen_t(text.count)).map { String(cString: $0) } ?? "0.0.0.0"
+                
                 var hwAddressString: String? = nil
-                if sdl.pointee.sdl_alen > 0 {
-                    let dataOffset = MemoryLayout<sockaddr_dl>.offset(of: \.sdl_data)!
-                    let sdlDataPtr = UnsafeRawPointer(sdl).advanced(by: dataOffset).assumingMemoryBound(to: UInt8.self)
-                    hwAddressString = String(format: "%x:%x:%x:%x:%x:%x",
-                                             sdlDataPtr.pointee,
-                                             sdlDataPtr.advanced(by: 1).pointee,
-                                             sdlDataPtr.advanced(by: 2).pointee,
-                                             sdlDataPtr.advanced(by: 3).pointee,
-                                             sdlDataPtr.advanced(by: 4).pointee,
-                                             sdlDataPtr.advanced(by: 5).pointee)
+                let linkOffset = inetOffset + MemoryLayout<sockaddr_in>.size
+                if linkOffset + linkLayerDataOffset <= position + messageLength {
+                    let nameLength = Int(table[linkOffset + linkLayerNameLengthOffset])
+                    let addressLength = Int(table[linkOffset + linkLayerAddressLengthOffset])
+                    let start = linkOffset + linkLayerDataOffset + nameLength
+                    if addressLength == 6, start + 6 <= position + messageLength {
+                        hwAddressString = (0..<6).map { String(format: "%x", table[start + $0]) }.joined(separator: ":")
+                    }
                 }
-                
-                let info = ArpInfo(sin_addr: sin_addr, ipAddressString: ipAddressString, hwAddressString: hwAddressString)
-                addresses.append(info)
-                
-                let msgLen = Int(rtm.pointee.rtm_msglen)
-                guard msgLen > 0 else { break }
-                pos = pos + msgLen
+                addresses.append(ArpInfo(sin_addr: inet.sin_addr, ipAddressString: ipAddressString, hwAddressString: hwAddressString))
             }
         }
-        
         return addresses
-        
-        
-//        size_t needed;
-//        char *host, *lim, *buf, *next;
-//        struct rt_msghdr *rtm;
-//        struct sockaddr_inarp *sin;
-//        struct sockaddr_dl *sdl;
-//        extern int h_errno;
-//        struct hostent *hp;
-//
-//        lim = buf + needed;
-//        for (next = buf; next < lim; next += rtm->rtm_msglen) {
-//            rtm = (struct rt_msghdr *)next;
-//            sin = (struct sockaddr_inarp *)(rtm + 1);
-//            sdl = (struct sockaddr_dl *)(sin + 1);
-//            if (nflag == 0)
-//                hp = gethostbyaddr((caddr_t)&(sin->sin_addr), sizeof sin->sin_addr, AF_INET);
-//            else
-//                hp = 0;
-//            if (hp)
-//                host = hp->h_name;
-//            else {
-//                host = "?";
-//                if (h_errno == TRY_AGAIN)
-//                    nflag = 1;
-//            }
-//            printf("%s (%s) at ", host, inet_ntoa(sin->sin_addr));
-//            if (sdl->sdl_alen)
-//                ether_print((u_char *)LLADDR(sdl));
-//            else
-//                printf("(incomplete)");
-//            if (rtm->rtm_rmx.rmx_expire == 0)
-//                printf(" permanent");
-//            if (sin->sin_other & SIN_PROXY)
-//                printf(" published (proxy only)");
-//            if (rtm->rtm_addrs & RTA_NETMASK) {
-//                sin = (struct sockaddr_inarp *)(sdl->sdl_len + (char *)sdl);
-//                if (sin->sin_addr.s_addr == 0xffffffff)
-//                    printf(" published");
-//                if (sin->sin_len != 8)
-//                    printf("(weird)");
-//            }
-//            printf("\n");
-//        }
     }
     
     public static func hwAddress(for socketAddress: SocketAddress) -> String? {
@@ -199,25 +146,30 @@ public struct NetworkUtils {
         return nil
     }
     
-    /// Send ping to every possible ip address in local subnet unless subnet is very big. In such
-    /// case limit address count to some sane number. Pings are sent as fast as possible without waiting for responses
+    /// Sends one empty UDP datagram (to the discard port) to every host on the local IPv4 subnets, at
+    /// most 254 per interface, without waiting for answers. Nothing needs to reply: sending makes macOS
+    /// resolve each address over ARP, which fills the ARP table that directed announcements use.
     public static func pingLocalNetwork() {
-        let localAddressInfos = localAddresses()
-        for localAddressInfo in localAddressInfos {
-            guard localAddressInfo.ip.isIPv4 else { continue } // for now only IPv4 supported
-            guard localAddressInfo.netmask.isIPv4 else { continue }
+        let socketHandle = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        guard socketHandle >= 0 else { return }
+        defer { close(socketHandle) }
+        _ = fcntl(socketHandle, F_SETFL, fcntl(socketHandle, F_GETFL) | O_NONBLOCK)
+        let discardPort = in_port_t(9).bigEndian
+        
+        for localAddressInfo in localAddresses() {
+            guard localAddressInfo.ip.isIPv4, localAddressInfo.netmask.isIPv4 else { continue }
+            let netMask = localAddressInfo.netmask.ipv4.sin_addr.s_addr
+            let networkPrefix = localAddressInfo.ip.ipv4.sin_addr.s_addr & netMask
             for i in 1 ... 254 {
                 let hostPart = UInt32(i).bigEndian
-                let netMask = localAddressInfo.netmask.ipv4.sin_addr.s_addr
                 guard (hostPart & netMask) == 0 else { break }
-                let networkPrefix = localAddressInfo.ip.ipv4.sin_addr.s_addr & netMask
-                var pingAddress = localAddressInfo.ip.ipv4
-                pingAddress.sin_addr.s_addr = networkPrefix | hostPart
-                
-                if let ping = SimplePing(hostAddress: SocketAddress(addr: pingAddress).data) {
-                    ping.start()
-                    ping.send(with: nil)
-                    ping.stop()
+                var target = localAddressInfo.ip.ipv4
+                target.sin_addr.s_addr = networkPrefix | hostPart
+                target.sin_port = discardPort
+                _ = withUnsafePointer(to: &target) { pointer in
+                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        sendto(socketHandle, nil, 0, 0, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    }
                 }
             }
         }
