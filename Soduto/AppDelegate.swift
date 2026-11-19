@@ -96,6 +96,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
         
         self.connectionProvider.start()
         self.updateBluetooth()
+        CallManager.shared.activate()
         self.bluetoothDefaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.updateBluetooth()
         }

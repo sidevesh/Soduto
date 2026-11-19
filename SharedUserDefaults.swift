@@ -127,6 +127,21 @@ enum AppDefaultsStore {
             static var isEnabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
         }
         
+        // MARK: Calls
+        
+        /// Taking the phone's calls on this Mac over Bluetooth Hands-Free
+        enum Calls {
+            fileprivate static let base = "\(Preferences.base).calls"
+            static let enabledKey = "\(base).enabled"
+            /// Bluetooth address of the phone; empty means "the only paired phone"
+            static let phoneAddressKey = "\(base).phoneAddress"
+            static let silentKey = "\(base).silent"
+            
+            static var isEnabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
+            static var phoneAddress: String { UserDefaults.standard.string(forKey: phoneAddressKey) ?? "" }
+            static var ringsOnMac: Bool { !UserDefaults.standard.bool(forKey: silentKey) }
+        }
+        
         // MARK: Control
         
         enum Control {

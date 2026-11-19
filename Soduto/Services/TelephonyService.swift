@@ -92,14 +92,24 @@ public class TelephonyService: Service, UserNotificationActionHandler {
             else if let event = try dataPacket.getEvent() ?? nil {
                 switch event {
                 case DataPacket.TelephonyEvent.ringing.rawValue:
-                    self.showRingingNotification(for: dataPacket, from: device)
+                    let takenOnMac = MainActor.assumeIsolated { CallManager.shared.isHandlingCalls }
+                    if takenOnMac {
+                        // The incoming-call banner handles it; the phone's contact name fills it in
+                        let name = (try? dataPacket.getContactName()) ?? nil
+                        let number = (try? dataPacket.getPhoneNumber()) ?? nil
+                        MainActor.assumeIsolated { CallManager.shared.noteCaller(name: name, number: number) }
+                    } else {
+                        self.showRingingNotification(for: dataPacket, from: device)
+                    }
                     break
                 case DataPacket.TelephonyEvent.missedCall.rawValue:
                     self.showMissedCallNotification(for: dataPacket, from: device)
                     break
                 case DataPacket.TelephonyEvent.talking.rawValue:
                     self.hideNotification(for: dataPacket, from: device)
-                    self.showOngoingCallHUD(for: dataPacket, from: device)
+                    if !MainActor.assumeIsolated({ CallManager.shared.isHandlingCalls }) {
+                        self.showOngoingCallHUD(for: dataPacket, from: device)
+                    }
                     Logger.services.debug("Telephony::talking, requesting media pause (pausedByController=\(self.mediaController.pausedByController, privacy: .public))")
                     self.mediaController.pause()
                     Logger.services.debug("Telephony::talking, after media pause request (pausedByController=\(self.mediaController.pausedByController, privacy: .public))")

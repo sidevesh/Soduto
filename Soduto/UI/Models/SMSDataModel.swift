@@ -367,6 +367,12 @@ final class SMSDataModel: ObservableObject {
     
     /// Display title for the currently selected conversation, used as the window title.
     /// Nil when no thread is selected; caller substitutes a generic fallback.
+    /// The other party's number when the selected conversation has exactly one
+    var selectedThreadAddress: String? {
+        guard let id = selectedThreadId, let thread = conversations[id], thread.addresses.count == 1 else { return nil }
+        return thread.addresses.first
+    }
+    
     var selectedThreadTitle: String? {
         guard let id = selectedThreadId,
               let thread = conversations[id] else { return nil }

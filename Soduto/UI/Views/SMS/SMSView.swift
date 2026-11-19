@@ -12,6 +12,7 @@ import SwiftUI
 /// conversation list on the left and the message thread on the right.
 struct SMSView: View {
     @ObservedObject var model: SMSDataModel
+    @ObservedObject private var calls = CallManager.shared
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     
     /// True when the user has collapsed the sidebar.
@@ -28,6 +29,17 @@ struct SMSView: View {
         } detail: {
             detailPane
                 .toolbar {
+                    if let number = model.selectedThreadAddress, !model.composingNew, calls.isHandlingCalls {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                calls.dial(number)
+                            } label: {
+                                Image(systemName: "phone")
+                            }
+                            .help("Call")
+                            .disabled(calls.call != nil)
+                        }
+                    }
                     if sidebarIsCollapsed {
                         ToolbarItem(placement: .primaryAction) {
                             composeButton

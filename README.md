@@ -89,6 +89,7 @@ Soduto implements the following KDE Connect plugin features (compatible with any
 
 #### Telephony
 - [x] Receive: View incoming call and SMS notifications from remote devices
+- [x] Take calls on this Mac: answer, decline and make the phone's calls with the Mac's microphone and speakers over Bluetooth Hands-Free (HFP), with an incoming-call banner, an in-call window (timer, mute, keypad, audio route, end) and a Call button in Messages, like iPhone calls on a Mac. Turn on **Settings › Calls › Take Calls on This Mac**; the phone must be paired with the Mac in System Settings › Bluetooth and allow calls for it
 
 #### SMS Window
 - [x] Receive: View SMS of remote devices

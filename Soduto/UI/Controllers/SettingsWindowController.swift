@@ -33,6 +33,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         tabs.addTabViewItem(Self.tab("Menu Bar", symbol: "menubar.rectangle", view: MenuBarSettingsView()))
         tabs.addTabViewItem(Self.tab("Control", symbol: "cursorarrow.motionlines", view: ControlSettingsView(model: model)))
         tabs.addTabViewItem(Self.tab("Run Commands", symbol: "apple.terminal", view: RunCommandsView(viewModel: runCommandsModel).frame(width: 520, height: 420)))
+        tabs.addTabViewItem(Self.tab("Calls", symbol: "phone", view: CallsSettingsView(manager: .shared)))
         tabs.addTabViewItem(Self.tab("Updates", symbol: "arrow.triangle.2.circlepath", view: UpdatesSettingsView(model: model)))
 
         let window = NSWindow(contentViewController: tabs)

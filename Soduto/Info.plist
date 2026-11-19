@@ -34,6 +34,8 @@
 	<string>Soduto.StatusBarApplication</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Soduto connects to your phone over Bluetooth when “Connect over Bluetooth” is on in Settings.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Soduto uses the microphone for phone calls you take on this Mac.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Soduto needs access to your contacts to let you send SMS messages to contacts on your Mac.</string>
 	<key>SUEnableInstallerLauncherService</key>

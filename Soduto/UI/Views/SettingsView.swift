@@ -274,6 +274,69 @@ struct ControlSettingsView: View {
     }
 }
 
+// MARK: - Calls
+
+struct CallsSettingsView: View {
+    @ObservedObject var manager: CallManager
+
+    @AppStorage(AppDefaultsStore.Preferences.Calls.enabledKey) private var enabled = false
+    @AppStorage(AppDefaultsStore.Preferences.Calls.phoneAddressKey) private var phoneAddress = ""
+    @AppStorage(AppDefaultsStore.Preferences.Calls.silentKey) private var silent = false
+
+    private struct Phone: Identifiable, Hashable {
+        let id: String
+        let name: String
+    }
+    @State private var phones: [Phone] = []
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle(isOn: $enabled) {
+                    Text("Take Calls on This Mac")
+                    Text("Answer and make your phone’s calls with this Mac’s microphone and speakers, over Bluetooth.")
+                }
+                Picker("Phone", selection: $phoneAddress) {
+                    Text("Automatic").tag("")
+                    ForEach(phones) { phone in
+                        Text(phone.name).tag(phone.id)
+                    }
+                }
+                .disabled(!enabled)
+                Toggle("Ring on This Mac", isOn: Binding(get: { !silent }, set: { silent = !$0 }))
+                    .disabled(!enabled)
+                LabeledContent("Status") {
+                    statusLabel
+                }
+            } footer: {
+                Text("Pair the phone with this Mac in System Settings › Bluetooth, then allow calls for this Mac in the phone’s Bluetooth settings for it. Automatic uses the only paired phone. Calls you answer on the phone stay on the phone.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 520, height: 360)
+        .onAppear {
+            phones = CallManager.pairedPhones().map { Phone(id: $0.address, name: $0.name) }
+        }
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        switch manager.connectionStatus {
+        case .off:
+            Text("Off").foregroundStyle(.secondary)
+        case .noPhone:
+            Label("No paired phone", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        case .connecting(let name):
+            Text("Connecting to \(name)…").foregroundStyle(.secondary)
+        case .connected(let name):
+            Label("Connected to \(name)", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+        case .disconnected(let name):
+            Text("\(name) not reachable; retrying").foregroundStyle(.secondary)
+        }
+    }
+}
+
 // MARK: - Updates
 
 struct UpdatesSettingsView: View {
