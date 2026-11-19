@@ -28,7 +28,11 @@ public protocol ConnectionConfiguration: HostConfiguration {
 ///
 /// This class manages a TCP connection with TLS using SwiftNIO. It supports
 /// STARTTLS with role reversal as required by KDE Connect protocol.
-public class Connection: NSObject, DeviceLink, PairingHandlerDelegate, UploadTaskDelegate {
+///
+/// Threading: the channel lives on a SwiftNIO event loop; packets read there are handed to the delegates
+/// on the main thread (`DispatchQueue.main.async`). The send queue (`packetsSending`) is guarded by
+/// `packetsSendingLock`.
+public class Connection: NSObject, DeviceLink, PairingHandlerDelegate, UploadTaskDelegate, @unchecked Sendable {
     
     // MARK: Types
     

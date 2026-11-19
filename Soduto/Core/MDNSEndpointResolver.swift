@@ -14,7 +14,8 @@ protocol MDNSEndpointResolverDelegate: AnyObject {
     func mdnsEndpointResolver(_ resolver: MDNSEndpointResolver, didResolveAddress address: String, forDeviceId deviceId: String, tcpPort: UInt16)
 }
 
-final class MDNSEndpointResolver {
+/// Resolves on its own queue and reports to its delegate from there; it keeps no other mutable state.
+final class MDNSEndpointResolver: @unchecked Sendable {
     private static let resolutionTimeout: TimeInterval = 5.0
     
     private let queue: DispatchQueue
@@ -28,14 +29,20 @@ final class MDNSEndpointResolver {
     func resolve(endpoint: NWEndpoint, deviceId: String, tcpPort: UInt16) {
         let parameters = NWParameters.udp
         let connection = NWConnection(to: endpoint, using: parameters)
-        var resolutionFinished = false
+        // Set once by whichever comes first: the connection's state handler or the timeout
+        let resolutionFinished = OSAllocatedUnfairLock(initialState: false)
+        /// Marks resolution finished; true only for the first caller
+        let finish: @Sendable () -> Bool = {
+            resolutionFinished.withLock { finished in
+                defer { finished = true }
+                return !finished
+            }
+        }
         
         connection.stateUpdateHandler = { [weak self] state in
-            guard !resolutionFinished else { return }
-            
             switch state {
             case .ready:
-                resolutionFinished = true
+                guard finish() else { return }
                 guard let self = self else {
                     connection.cancel()
                     return
@@ -53,13 +60,12 @@ final class MDNSEndpointResolver {
                 connection.cancel()
                 
             case .failed(let error):
-                resolutionFinished = true
+                guard finish() else { return }
                 Logger.network.debug("mDNS endpoint resolution failed for \(deviceId, privacy: .public): \(error, privacy: .public)")
                 connection.cancel()
                 
             case .cancelled:
-                resolutionFinished = true
-                break
+                _ = finish()
                 
             default:
                 break
@@ -69,9 +75,7 @@ final class MDNSEndpointResolver {
         connection.start(queue: queue)
         
         queue.asyncAfter(deadline: .now() + type(of: self).resolutionTimeout) {
-            guard !resolutionFinished else { return }
-            
-            resolutionFinished = true
+            guard finish() else { return }
             Logger.network.debug("mDNS endpoint resolution timeout for \(deviceId, privacy: .public)")
             connection.cancel()
         }

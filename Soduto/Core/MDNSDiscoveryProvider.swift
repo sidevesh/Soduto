@@ -38,7 +38,8 @@ public protocol MDNSDiscoveryProviderDelegate: AnyObject {
 /// This class advertises the local device as a `_kdeconnect._udp` service and browses
 /// for other KDE Connect devices on the network. When a device is discovered, it notifies
 /// the delegate which can trigger the existing UDP-based connection flow.
-public class MDNSDiscoveryProvider {
+/// Shared between the main thread and its discovery queue; state both touch is guarded by its locks.
+public class MDNSDiscoveryProvider: @unchecked Sendable {
     
     // MARK: Constants
     

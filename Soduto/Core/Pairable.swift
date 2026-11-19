@@ -8,14 +8,14 @@
 
 import Foundation
 
-public enum PairingStatus: Int {
+public enum PairingStatus: Int, Sendable {
     case Unpaired
     case Requested
     case RequestedByPeer
     case Paired
 }
 
-public struct PairingRequest {
+public struct PairingRequest: Sendable {
     /// The link the request arrived on
     public let link: DeviceLink
 }
@@ -27,7 +27,7 @@ public protocol DeviceLinkPairingDelegate: AnyObject {
     func link(_ link: DeviceLink, pairingStatusChanged status: PairingStatus)
 }
 
-public protocol Pairable {
+public protocol Pairable: AnyObject {
     
     var pairingDelegate: DeviceLinkPairingDelegate? { get set }
     var pairingStatus: PairingStatus { get }

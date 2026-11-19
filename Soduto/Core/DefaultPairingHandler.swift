@@ -22,7 +22,11 @@ public protocol PairingHandlerDelegate: AnyObject {
 /// This class handles the pairing state transitions and certificate management.
 /// Connection uses this internally to track pairing state; all delegate callbacks
 /// are handled directly by Connection via DeviceLinkPairingDelegate.
-public class DefaultPairingHandler: Pairable {
+///
+/// Threading: the pairing timeout runs on the main thread. Known gap: `pairingStatus` can also change on
+/// the connection's network thread (pair packets are handled there), unsynchronized; confining pairing to
+/// the main thread is the follow-up.
+public class DefaultPairingHandler: Pairable, @unchecked Sendable {
     
     // MARK: Types
     

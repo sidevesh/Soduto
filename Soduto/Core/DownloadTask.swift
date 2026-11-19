@@ -49,7 +49,9 @@ public extension DownloadTaskDelegate {
 ///
 /// - SeeAlso: https://www.evanjones.ca/read-write-buffer-size.html
 /// - SeeAlso: http://codecapsule.com/2014/02/12/coding-for-ssds-part-6-a-summary-what-every-programmer-should-know-about-solid-state-drives/
-public class DownloadTask {
+/// Shared between its creator (main thread), its SwiftNIO event loop (receiving the payload), a serial
+/// write queue (writing to the stream) and a serial delegate queue (progress and completion).
+public class DownloadTask: @unchecked Sendable {
     
     // MARK: Types
     
@@ -346,8 +348,8 @@ public class DownloadTask {
     private func downloadFinished(success: Bool) {
         guard !isClosed else { return }
         
-        // Capture delegate before close() clears it
-        let delegate = self.delegate
+        // Capture delegate before close() clears it (delegates are told on the serial delegate queue)
+        nonisolated(unsafe) let delegate = self.delegate
         let delegateQueue = self.delegateQueue
         
         // First dispatch to writeQueue to ensure all pending writes complete,

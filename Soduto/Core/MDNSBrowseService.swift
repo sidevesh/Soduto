@@ -14,7 +14,8 @@ protocol MDNSBrowseServiceDelegate: AnyObject {
     func mdnsBrowseService(_ service: MDNSBrowseService, didReceiveChanges changes: Set<NWBrowser.Result.Change>)
 }
 
-final class MDNSBrowseService {
+/// Its browser reports on the browse queue it was started with; start and stop come from the owner.
+final class MDNSBrowseService: @unchecked Sendable {
     private let queue: DispatchQueue
     private var browser: NWBrowser?
     

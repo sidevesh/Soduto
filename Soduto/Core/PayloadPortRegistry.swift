@@ -23,7 +23,8 @@ public final class PayloadPortRegistry {
     
     // MARK: - Private State
     
-    private static var usedPorts: [UInt16] = []
+    /// Guarded by `lock`
+    nonisolated(unsafe) private static var usedPorts: [UInt16] = []
     private static let lock = NSLock()
     
     // MARK: - Public API

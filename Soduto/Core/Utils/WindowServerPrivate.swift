@@ -35,10 +35,10 @@ enum WindowServerPrivate {
         case disable = 1
     }
 
-    private static let defaultHandle = UnsafeMutableRawPointer(bitPattern: -2)  // RTLD_DEFAULT
+    nonisolated(unsafe) private static let defaultHandle = UnsafeMutableRawPointer(bitPattern: -2)  // RTLD_DEFAULT
 
     /// SkyLight hosts the SLS* symbols; AppKit loads it anyway, this just makes sure
-    private static let skyLightHandle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+    nonisolated(unsafe) private static let skyLightHandle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
     
     private static func function<T>(_ names: [String], as type: T.Type) -> T? {
         for name in names {

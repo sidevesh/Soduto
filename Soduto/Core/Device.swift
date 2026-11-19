@@ -50,7 +50,9 @@ public protocol DeviceDataPacketHandler: AnyObject {
 
 /// Device class represents a remote device. It may be reachable over several links at once, but only
 /// one of each kind (LAN, Bluetooth); `link(forSending:)` picks the link for each packet.
-public class Device: DeviceLinkDelegate, DeviceLinkPairingDelegate, Pairable, CustomStringConvertible {
+/// Used on the main thread: links report to it there (`DispatchQueue.main.async`), and services and UI
+/// call it there. Marked `Sendable` so those hops can carry it.
+public class Device: DeviceLinkDelegate, DeviceLinkPairingDelegate, Pairable, CustomStringConvertible, @unchecked Sendable {
     
     // MARK: Types
     

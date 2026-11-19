@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import os
 
 public struct DataPacket: CustomStringConvertible {
     
@@ -27,8 +28,7 @@ public struct DataPacket: CustomStringConvertible {
     // MARK: Properties
     
     static let protocolVersion: UInt = 8
-    private static var idCounter: Int64 = 0
-    private static var idCounterLock: NSLock = NSLock()
+    private static let idCounter = OSAllocatedUnfairLock(initialState: Int64(0))
     
     var id: Int64
     var type: String
@@ -124,11 +124,10 @@ public struct DataPacket: CustomStringConvertible {
     // MARK: Private static
     
     private static func nextId() -> Int64 {
-        self.idCounterLock.lock()
-        defer { self.idCounterLock.unlock() }
-        
-        self.idCounter += 1
-        return self.idCounter
+        idCounter.withLock { counter in
+            counter += 1
+            return counter
+        }
     }
 }
 
@@ -257,3 +256,9 @@ extension DataPacket {
         guard type == DataPacket.identityPacketType else { throw IdentityError.wrongType }
     }
 }
+
+/// Packets cross threads by hand-off: one is built (or parsed) on one thread and given to another to
+/// send or handle, and nobody keeps changing it afterwards. Its body holds immutable Foundation values
+/// (strings, numbers, arrays, dictionaries).
+extension DataPacket: @unchecked Sendable {}
+

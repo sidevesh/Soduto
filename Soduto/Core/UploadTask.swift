@@ -49,7 +49,10 @@ public extension UploadTaskDelegate {
 ///
 /// - SeeAlso: https://www.evanjones.ca/read-write-buffer-size.html
 /// - SeeAlso: https://github.com/dotnet/runtime/discussions/74405
-public class UploadTask {
+/// Shared between its creator (main thread), its SwiftNIO event loop (accepting and writing the payload)
+/// and its private delegate queue. Progress and completion reach the delegate on that serial queue;
+/// the transfer state is only changed on the event loop once the upload has started.
+public class UploadTask: @unchecked Sendable {
     
     // MARK: Types
     
@@ -183,8 +186,10 @@ public class UploadTask {
             .serverChannelOption(ChannelOptions.backlog, value: 1)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .serverChannelInitializer { channel in
-                // Add error handler for the server channel
-                channel.pipeline.addHandler(ServerErrorHandler())
+                // Add error handler for the server channel (initializers run on its event loop)
+                channel.eventLoop.makeCompletedFuture {
+                    try channel.pipeline.syncOperations.addHandler(ServerErrorHandler())
+                }
             }
             .childChannelInitializer { [weak self] channel in
                 guard let self = self else {
@@ -199,28 +204,30 @@ public class UploadTask {
         // Bind to the port - use a dispatch queue to avoid blocking event loop
         // Use IPv6 dual-stack (::) to accept both IPv4 and IPv6 connections
         let semaphore = DispatchSemaphore(value: 0)
-        var bindResult: Result<Channel, Error>?
+        let bindResultBox = OSAllocatedUnfairLock<Result<Channel, Error>?>(initialState: nil)
+        // Only used on the global queue below while this thread waits for it
+        nonisolated(unsafe) let bootstrap = bootstrap
         
         DispatchQueue.global().async {
+            let result: Result<Channel, Error>
             // Try IPv6 dual-stack first
             do {
-                let channel = try bootstrap.bind(host: "::", port: Int(port)).wait()
-                bindResult = .success(channel)
+                result = .success(try bootstrap.bind(host: "::", port: Int(port)).wait())
             } catch {
                 // Fallback to IPv4-only
                 do {
-                    let channel = try bootstrap.bind(host: "0.0.0.0", port: Int(port)).wait()
-                    bindResult = .success(channel)
+                    result = .success(try bootstrap.bind(host: "0.0.0.0", port: Int(port)).wait())
                 } catch let ipv4Error {
-                    bindResult = .failure(ipv4Error)
+                    result = .failure(ipv4Error)
                 }
             }
+            bindResultBox.withLockUnchecked { $0 = result }
             semaphore.signal()
         }
         
         semaphore.wait()
         
-        switch bindResult {
+        switch bindResultBox.withLockUnchecked({ $0 }) {
         case .success(let channel):
             self.serverChannel = channel
         case .failure(let error):
@@ -376,16 +383,19 @@ public class UploadTask {
             self.delegate?.uploadTask(self, bytesSent: sent, totalBytes: total)
         }
         
+        // The write completes on this same event loop; the context never leaves it
+        let boundContext = NIOLoopBound(context, eventLoop: context.eventLoop)
         context.writeAndFlush(NIOAny(buffer)).whenComplete { [weak self] result in
+            let task = self
             switch result {
             case .success:
                 // Continue sending on the event loop
-                context.eventLoop.execute {
-                    self?.handleWriteComplete(context: context)
+                boundContext.value.eventLoop.execute {
+                    task?.handleWriteComplete(context: boundContext.value)
                 }
             case .failure(let error):
                 Logger.network.error("UploadTask write error: \(error, privacy: .public)")
-                context.close(promise: nil)
+                boundContext.value.close(promise: nil)
             }
         }
     }
@@ -407,8 +417,8 @@ public class UploadTask {
         
         PayloadPortRegistry.releasePort(self.listeningPort)
         
-        // Capture delegate before close() clears it
-        let delegate = self.delegate
+        // Capture delegate before close() clears it (delegates are told on the serial delegate queue)
+        nonisolated(unsafe) let delegate = self.delegate
         
         self.delegateQueue.async { [weak self] in
             guard let self = self else { return }

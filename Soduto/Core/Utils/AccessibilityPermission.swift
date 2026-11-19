@@ -37,7 +37,8 @@ enum AccessibilityPermission {
         }
     }
 
-    private static var isShowingAlert = false
+    /// Only read and written on the main thread, around the alert it guards
+    nonisolated(unsafe) private static var isShowingAlert = false
 
     /// Returns true when access is granted. Otherwise asks macOS to list Soduto (system prompt where supported)
     /// and shows an alert explaining how to grant access.
@@ -47,7 +48,8 @@ enum AccessibilityPermission {
     ///   - purpose: one sentence on what the permission is used for
     @discardableResult
     static func requestIfNeeded(feature: String, purpose: String) -> Bool {
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+        // The value of kAXTrustedCheckOptionPrompt, spelled out: the imported global isn't concurrency-safe
+        let options: NSDictionary = ["AXTrustedCheckOptionPrompt": true]
         if AXIsProcessTrustedWithOptions(options) { return true }
         Logger.services.notice("Accessibility permission missing for \(feature, privacy: .public)")
         showAlert(

@@ -23,7 +23,10 @@ public protocol ConnectionProviderDelegate: AnyObject {
     func connectionProvider(_ provider: ConnectionProvider, probeConnectionsFor deviceId: String)
 }
 
-public class ConnectionProvider: NSObject, DeviceLinkDelegate {
+/// Shared between the main thread (its API, the link delegate callbacks, the path monitor's handler)
+/// and SwiftNIO event loops (the UDP and TCP handlers), which hand their results to the main thread with
+/// `DispatchQueue.main.async` before touching the provider's state.
+public class ConnectionProvider: NSObject, DeviceLinkDelegate, @unchecked Sendable {
     
     static public let udpPort: UInt16 = 1716
     static public let minTcpPort: UInt16 = 1716
@@ -80,11 +83,13 @@ public class ConnectionProvider: NSObject, DeviceLinkDelegate {
         super.init()
         
         self.pathMonitor.pathUpdateHandler = { [weak self] path in
+            let isSatisfied = path.status == .satisfied
+            let provider = self
             DispatchQueue.main.async {
-                if path.status == .satisfied {
-                    self?.becameReachable()
+                if isSatisfied {
+                    provider?.becameReachable()
                 } else {
-                    self?.becameUnreachable()
+                    provider?.becameUnreachable()
                 }
             }
         }
@@ -401,8 +406,10 @@ public class ConnectionProvider: NSObject, DeviceLinkDelegate {
                 guard let self = self else {
                     return channel.eventLoop.makeSucceededVoidFuture()
                 }
-                let handler = UdpHandler(connectionProvider: self, config: self.config)
-                return channel.pipeline.addHandler(handler)
+                // Initializers run on the channel's event loop: add the handler synchronously
+                return channel.eventLoop.makeCompletedFuture {
+                    try channel.pipeline.syncOperations.addHandler(UdpHandler(connectionProvider: self, config: self.config))
+                }
             }
         
         do {
@@ -597,8 +604,10 @@ public class ConnectionProvider: NSObject, DeviceLinkDelegate {
                 guard let self = self else {
                     return channel.eventLoop.makeSucceededVoidFuture()
                 }
-                let handler = TcpConnectionHandler(connectionProvider: self, config: self.config)
-                return channel.pipeline.addHandler(handler)
+                // Initializers run on the channel's event loop: add the handler synchronously
+                return channel.eventLoop.makeCompletedFuture {
+                    try channel.pipeline.syncOperations.addHandler(TcpConnectionHandler(connectionProvider: self, config: self.config))
+                }
             }
         
         // Try to bind to a port in the KDE Connect range

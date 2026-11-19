@@ -60,13 +60,13 @@ public struct NetworkUtils {
         case routingTableRetrievalFailed
     }
     
-    public struct ArpInfo {
+    public struct ArpInfo: Sendable {
         let sin_addr: in_addr
         let ipAddressString: String
         let hwAddressString: String?
     }
     
-    public struct LocalAddressInfo {
+    public struct LocalAddressInfo: Sendable {
         let ip: SocketAddress
         let netmask: SocketAddress
         let ipString: String

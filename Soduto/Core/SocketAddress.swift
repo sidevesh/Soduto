@@ -8,7 +8,7 @@
 
 import Foundation
 
-public struct SocketAddress: CustomStringConvertible {
+public struct SocketAddress: CustomStringConvertible, Sendable {
     
     var storage = sockaddr_storage()
     

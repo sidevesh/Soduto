@@ -9,7 +9,7 @@ import Foundation
 import Security
 
 /// The transport a link runs over. A `Device` keeps at most one link of each kind.
-public enum DeviceLinkKind: String, CaseIterable, CustomStringConvertible {
+public enum DeviceLinkKind: String, CaseIterable, CustomStringConvertible, Sendable {
     /// TCP + TLS on the local network (`Connection`)
     case lan
     /// KDE Connect's RFCOMM channel (not implemented yet)
@@ -19,7 +19,7 @@ public enum DeviceLinkKind: String, CaseIterable, CustomStringConvertible {
 }
 
 /// Lifecycle of a link, the same for every transport
-public enum DeviceLinkState {
+public enum DeviceLinkState: Sendable {
     case Initializing
     case Open
     case Closed
@@ -47,7 +47,10 @@ public extension DeviceLinkDelegate {
 /// `Device` holds its links, pairs through them, and picks one per packet with `link(forSending:)`,
 /// so services never deal with transports: they send through the device and receive packets with the
 /// link they arrived on.
-public protocol DeviceLink: AnyObject, Pairable, CustomStringConvertible {
+///
+/// Links are `Sendable`: a link receives on its own threads (a network event loop) and reports to its
+/// delegates on the main thread, guarding any state both sides touch.
+public protocol DeviceLink: AnyObject, Pairable, CustomStringConvertible, Sendable {
     var kind: DeviceLinkKind { get }
     var state: DeviceLinkState { get }
     var delegate: DeviceLinkDelegate? { get set }

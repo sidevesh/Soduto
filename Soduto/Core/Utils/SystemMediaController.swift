@@ -29,7 +29,8 @@ import os
 /// Listening starts at init so `isMediaPlaying` is already current before any call.
 ///
 /// Must be called from the main thread.
-final class SystemMediaController {
+/// Used from the main thread only (call handling in the telephony service).
+final class SystemMediaController: @unchecked Sendable {
 
     // MARK: - Singleton
 
