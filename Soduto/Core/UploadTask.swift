@@ -206,17 +206,17 @@ public class UploadTask: @unchecked Sendable {
         let semaphore = DispatchSemaphore(value: 0)
         let bindResultBox = OSAllocatedUnfairLock<Result<Channel, Error>?>(initialState: nil)
         // Only used on the global queue below while this thread waits for it
-        nonisolated(unsafe) let bootstrap = bootstrap
+        nonisolated(unsafe) let unsafeBootstrap = bootstrap
         
         DispatchQueue.global().async {
             let result: Result<Channel, Error>
             // Try IPv6 dual-stack first
             do {
-                result = .success(try bootstrap.bind(host: "::", port: Int(port)).wait())
+                result = .success(try unsafeBootstrap.bind(host: "::", port: Int(port)).wait())
             } catch {
                 // Fallback to IPv4-only
                 do {
-                    result = .success(try bootstrap.bind(host: "0.0.0.0", port: Int(port)).wait())
+                    result = .success(try unsafeBootstrap.bind(host: "0.0.0.0", port: Int(port)).wait())
                 } catch let ipv4Error {
                     result = .failure(ipv4Error)
                 }

@@ -1081,10 +1081,11 @@ public class Connection: NSObject, DeviceLink, PairingHandlerDelegate, UploadTas
         
         Logger.network.debug("Sending payload packet type: \(packet.type, privacy: .public) with payload on port \(uploadTask.payloadInfo["port"] as? UInt16 ?? 0, privacy: .public)")
         
+        let packetTag = Int(payloadPacket.id)
         self.channel!.writeAndFlush(data).whenComplete { [weak self] result in
             switch result {
             case .success:
-                self?.handleWriteComplete(tag: Int(payloadPacket.id))
+                self?.handleWriteComplete(tag: packetTag)
             case .failure(let error):
                 Logger.network.error("Failed to write payload packet: \(error, privacy: .public)")
                 uploadTask.close()
@@ -1095,6 +1096,8 @@ public class Connection: NSObject, DeviceLink, PairingHandlerDelegate, UploadTas
     }
     
     private func finalizeSending(packet: DataPacket, completionHandler: SendingCompletionHandler?, packetSent: Bool, payloadSent: Bool) {
+        // Completion handlers are only ever called on the main thread
+        nonisolated(unsafe) let completionHandler = completionHandler
         DispatchQueue.main.async { [weak self] in
             completionHandler?(packetSent, payloadSent)
             if packetSent, let self = self {
