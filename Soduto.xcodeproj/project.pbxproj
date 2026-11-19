@@ -89,6 +89,10 @@
 		31A421952F43B526003B97FC /* PayloadPortRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31A421942F43B526003B97FC /* PayloadPortRegistry.swift */; };
 		31A421992F43B8C2003B97FC /* UploadTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31A421982F43B8C2003B97FC /* UploadTask.swift */; };
 		31A4219A2F43B8C2003B97FC /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31A421962F43B8C2003B97FC /* Connection.swift */; };
+		1A4AAF10A6007124E6B05FB7 /* BluetoothLinkProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8EF9E7D57E326C2B974B4B1 /* BluetoothLinkProvider.swift */; };
+		7C643B37FAF5BD1B26B014A8 /* BluetoothLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A2B6016FD2B628137FFA30 /* BluetoothLink.swift */; };
+		1F6B63EBB76AEC9E9325A069 /* BluetoothTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B264E39EE4D9196876EB8B3 /* BluetoothTransport.swift */; };
+		34798C2484CD6257B41FD962 /* BluetoothMultiplexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08BF36BF57A10CD78CFFABA1 /* BluetoothMultiplexer.swift */; };
 		7D418DA8DFDFB33FE869A144 /* DeviceLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CC6765A7141906E1706D185 /* DeviceLink.swift */; };
 		31A4219B2F43B8C2003B97FC /* DownloadTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31A421972F43B8C2003B97FC /* DownloadTask.swift */; };
 		31AB4B5A2F5975E000FE3DD4 /* HUDToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31AB4B592F5975E000FE3DD4 /* HUDToast.swift */; };
@@ -328,6 +332,10 @@
 		31A0A3BF2F2C118F00CDA243 /* ShareSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheetView.swift; sourceTree = "<group>"; };
 		31A421942F43B526003B97FC /* PayloadPortRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayloadPortRegistry.swift; sourceTree = "<group>"; };
 		31A421962F43B8C2003B97FC /* Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connection.swift; sourceTree = "<group>"; };
+		A8EF9E7D57E326C2B974B4B1 /* BluetoothLinkProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothLinkProvider.swift; sourceTree = "<group>"; };
+		D1A2B6016FD2B628137FFA30 /* BluetoothLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothLink.swift; sourceTree = "<group>"; };
+		3B264E39EE4D9196876EB8B3 /* BluetoothTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothTransport.swift; sourceTree = "<group>"; };
+		08BF36BF57A10CD78CFFABA1 /* BluetoothMultiplexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothMultiplexer.swift; sourceTree = "<group>"; };
 		1CC6765A7141906E1706D185 /* DeviceLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceLink.swift; sourceTree = "<group>"; };
 		31A421972F43B8C2003B97FC /* DownloadTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadTask.swift; sourceTree = "<group>"; };
 		31A421982F43B8C2003B97FC /* UploadTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadTask.swift; sourceTree = "<group>"; };
@@ -715,6 +723,10 @@
 				310154823008CF89002E4BB2 /* BroadcastIdentity.swift */,
 				84D903A11DC696A600E61DA7 /* CertificateUtils.swift */,
 				31A421962F43B8C2003B97FC /* Connection.swift */,
+				A8EF9E7D57E326C2B974B4B1 /* BluetoothLinkProvider.swift */,
+				D1A2B6016FD2B628137FFA30 /* BluetoothLink.swift */,
+				3B264E39EE4D9196876EB8B3 /* BluetoothTransport.swift */,
+				08BF36BF57A10CD78CFFABA1 /* BluetoothMultiplexer.swift */,
 				1CC6765A7141906E1706D185 /* DeviceLink.swift */,
 				84FA45D01DDDCB3D00EF3992 /* ConnectionProvider.swift */,
 				84FA45D11DDDCB3D00EF3992 /* DataPacket.swift */,
@@ -1145,6 +1157,10 @@
 				64A20AE04C537129EC84CEE6 /* SettingsView.swift in Sources */,
 				31A421992F43B8C2003B97FC /* UploadTask.swift in Sources */,
 				31A4219A2F43B8C2003B97FC /* Connection.swift in Sources */,
+				1A4AAF10A6007124E6B05FB7 /* BluetoothLinkProvider.swift in Sources */,
+				7C643B37FAF5BD1B26B014A8 /* BluetoothLink.swift in Sources */,
+				1F6B63EBB76AEC9E9325A069 /* BluetoothTransport.swift in Sources */,
+				34798C2484CD6257B41FD962 /* BluetoothMultiplexer.swift in Sources */,
 				7D418DA8DFDFB33FE869A144 /* DeviceLink.swift in Sources */,
 				31905C172F75F22900F259CE /* DigitizerService.swift in Sources */,
 				31A4219B2F43B8C2003B97FC /* DownloadTask.swift in Sources */,

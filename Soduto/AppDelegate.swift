@@ -23,6 +23,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
     
     let config = Configuration()
     let connectionProvider: ConnectionProvider
+    let bluetoothLinkProvider: BluetoothLinkProvider
+    private var isBluetoothRunning = false
+    private var bluetoothDefaultsObserver: NSObjectProtocol?
     let deviceManager: DeviceManager
     let serviceManager = ServiceManager()
     private(set) var userNotificationManager: UserNotificationManager!
@@ -33,6 +36,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
     
     override init() {
         self.connectionProvider = ConnectionProvider(config: config)
+        self.bluetoothLinkProvider = BluetoothLinkProvider(config: config)
         self.deviceManager = DeviceManager(config: config, serviceManager: self.serviceManager)
         self.updateManager = UpdateManager()
         
@@ -52,6 +56,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
         self.userNotificationManager = UserNotificationManager(config: self.config, serviceManager: self.serviceManager, deviceManager: self.deviceManager)
         self.config.capabilitiesDataSource = self.serviceManager
         self.connectionProvider.delegate = self.deviceManager
+        self.bluetoothLinkProvider.delegate = self.deviceManager
         self.statusBarMenuController.deviceDataSource = self.deviceManager
         self.statusBarMenuController.serviceManager = self.serviceManager
         self.statusBarMenuController.config = self.config
@@ -90,6 +95,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
         observeLifecycleForDiagnostics()
         
         self.connectionProvider.start()
+        self.updateBluetooth()
+        self.bluetoothDefaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.updateBluetooth()
+        }
         
         showWelcomeWindow()
     }
@@ -150,7 +159,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
     @objc private func wakeUpListener(_ aNotification: Notification) {
         Logger.general.notice("Mac woke from sleep; restarting network services")
         self.connectionProvider.restart()
+        self.bluetoothLinkProvider.restart()
         self.updateValidDevices()
+    }
+    
+    // MARK: Bluetooth
+    
+    /// Connect over Bluetooth while it's turned on in Settings › General
+    private func updateBluetooth() {
+        let enabled = AppDefaultsStore.Preferences.Bluetooth.isEnabled
+        guard enabled != isBluetoothRunning else { return }
+        isBluetoothRunning = enabled
+        if enabled {
+            self.bluetoothLinkProvider.start()
+        } else {
+            self.bluetoothLinkProvider.stop()
+        }
     }
     
     // MARK: Extension Support

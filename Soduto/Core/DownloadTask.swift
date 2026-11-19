@@ -70,9 +70,11 @@ public class DownloadTask: @unchecked Sendable {
     
     private let payloadPort: UInt16
     private let peerHost: String
-    private let hostIdentity: SecIdentity
+    private let hostIdentity: SecIdentity?
     private let expectedPeerCertificate: SecCertificate?
-    private let eventLoopGroup: EventLoopGroup
+    private let eventLoopGroup: EventLoopGroup?
+    /// Set for a payload arriving over Bluetooth: read from this multiplexer channel instead of a TLS socket
+    private let bluetoothSource: (multiplexer: BluetoothMultiplexer, channel: BluetoothMultiplexer.Channel)?
     private let writeQueue: DispatchQueue
     private let delegateQueue: DispatchQueue
     
@@ -125,6 +127,33 @@ public class DownloadTask: @unchecked Sendable {
         self.eventLoopGroup = eventLoopGroup
         self.writeQueue = writeQueue
         self.delegateQueue = delegateQueue
+        self.bluetoothSource = nil
+    }
+    
+    /// Creates a download task for a payload sent over Bluetooth, on the multiplexer channel named in the
+    /// packet's `payloadTransferInfo.uuid`.
+    init?(
+        packet: DataPacket,
+        multiplexer: BluetoothMultiplexer,
+        writeQueue: DispatchQueue,
+        delegateQueue: DispatchQueue = .main
+    ) {
+        guard let uuidString = packet.payloadInfo?["uuid"] as? String,
+              let channelId = UUID(uuidString: uuidString),
+              let channel = multiplexer.channel(channelId) else {
+            Logger.network.error("DownloadTask: Bluetooth payload channel missing")
+            return nil
+        }
+        self.id = packet.id
+        self.payloadSize = packet.payloadSize
+        self.payloadPort = 0
+        self.peerHost = ""
+        self.hostIdentity = nil
+        self.expectedPeerCertificate = nil
+        self.eventLoopGroup = nil
+        self.writeQueue = writeQueue
+        self.delegateQueue = delegateQueue
+        self.bluetoothSource = (multiplexer, channel)
     }
     
     deinit {
@@ -139,6 +168,11 @@ public class DownloadTask: @unchecked Sendable {
     public func start(withStream stream: OutputStream) {
         self.stream = stream
         
+        if let source = self.bluetoothSource {
+            self.startReading(from: source.multiplexer, channel: source.channel)
+            return
+        }
+        
         do {
             try self.connect()
         } catch {
@@ -151,6 +185,9 @@ public class DownloadTask: @unchecked Sendable {
     public func cancel() {
         cancelRequested = true
         self.channel?.close(promise: nil)
+        if let source = self.bluetoothSource {
+            source.multiplexer.closeChannel(source.channel)
+        }
     }
     
     /// Closes the download task and releases resources.
@@ -160,7 +197,29 @@ public class DownloadTask: @unchecked Sendable {
         
         self.delegate = nil
         self.channel?.close(promise: nil)
+        if let source = self.bluetoothSource {
+            source.multiplexer.closeChannel(source.channel)
+        }
         self.stream?.close()
+    }
+    
+    // MARK: Private - Bluetooth
+    
+    /// Reads the payload from its multiplexer channel on a thread of its own (reads block until the peer
+    /// sends), through the same handling as the network path
+    private func startReading(from multiplexer: BluetoothMultiplexer, channel: BluetoothMultiplexer.Channel) {
+        self.handleTLSEstablished()  // opens the stream
+        let thread = Thread { [weak self] in
+            while let task = self, !task.cancelRequested {
+                guard let data = multiplexer.read(channel, maxLength: BluetoothMultiplexer.bufferSize) else { break }
+                task.handleDataReceived(data)
+                if let size = task.payloadSize, task.bytesReceivedFromNetwork >= size { break }
+            }
+            multiplexer.closeChannel(channel)
+            self?.handleChannelInactive()
+        }
+        thread.name = "Soduto Bluetooth download"
+        thread.start()
     }
     
     // MARK: Private - Connection
@@ -179,7 +238,8 @@ public class DownloadTask: @unchecked Sendable {
         // Create and retain trust handler
         self.trustHandler = PayloadClientTrustHandler(expectedCertificate: self.expectedPeerCertificate)
         
-        let bootstrap = ClientBootstrap(group: self.eventLoopGroup)
+        guard let eventLoopGroup = self.eventLoopGroup else { throw DownloadTaskError.invalidAddress }
+        let bootstrap = ClientBootstrap(group: eventLoopGroup)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelOption(ChannelOptions.connectTimeout, value: DownloadTask.downloadTimeout)
             .withTCPKeepalive()
@@ -221,6 +281,7 @@ public class DownloadTask: @unchecked Sendable {
     private func createTLSConfiguration() throws -> TLSConfiguration {
         // Extract certificate and private key from SecIdentity
         var certificate: SecCertificate?
+        guard let hostIdentity = self.hostIdentity else { throw DownloadTaskError.failedToLoadCertificate }
         let certStatus = SecIdentityCopyCertificate(hostIdentity, &certificate)
         guard certStatus == errSecSuccess, let cert = certificate else {
             throw DownloadTaskError.failedToLoadCertificate

@@ -117,6 +117,16 @@ enum AppDefaultsStore {
             static var deviceId: String { UserDefaults.standard.string(forKey: deviceIdKey) ?? "" }
         }
         
+        // MARK: Bluetooth
+        
+        /// Connect to devices over Bluetooth as well as the network (off by default)
+        enum Bluetooth {
+            fileprivate static let base = "\(Preferences.base).bluetooth"
+            static let enabledKey = "\(base).enabled"
+            
+            static var isEnabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
+        }
+        
         // MARK: Control
         
         enum Control {

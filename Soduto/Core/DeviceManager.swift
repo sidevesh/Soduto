@@ -28,7 +28,7 @@ public protocol DeviceManagerConfiguration {
     var hostDeviceId: Device.Id { get }
 }
 
-public class DeviceManager: ConnectionProviderDelegate, DeviceDelegate, DeviceDataSource {
+public class DeviceManager: ConnectionProviderDelegate, BluetoothLinkProviderDelegate, DeviceDelegate, DeviceDataSource {
     
     // MARK: Types
     
@@ -96,33 +96,44 @@ public class DeviceManager: ConnectionProviderDelegate, DeviceDelegate, DeviceDa
     
     public func connectionProvider(_ provider: ConnectionProvider, didCreateConnection connection: Connection) {
         Logger.device.debug("connectionProvider(<\(provider, privacy: .public)> didCreateConnection:<\(connection, privacy: .public)>)")
-        
+        self.add(link: connection)
+    }
+    
+    
+    // MARK: BluetoothLinkProviderDelegate
+    
+    public func bluetoothLinkProvider(_ provider: BluetoothLinkProvider, didCreateLink link: DeviceLink) {
+        Logger.device.debug("bluetoothLinkProvider didCreateLink:<\(link, privacy: .public)>")
+        self.add(link: link)
+    }
+    
+    /// Hands a new, open link to its device (creating or bringing back the device as needed)
+    private func add(link: DeviceLink) {
         // The state transition notification is dispatched asynchronously to the main queue,
-        // so the NIO event loop can close the connection in the window between the notification
-        // being queued and this handler running
-        guard connection.state == .Open else {
-            Logger.device.warning("connectionProvider delivered connection not in Open state (\(String(describing: connection.state), privacy: .public)) — ignoring")
+        // so the link can close in the window between the notification being queued and this running
+        guard link.state == .Open else {
+            Logger.device.warning("Link delivered not in Open state (\(String(describing: link.state), privacy: .public)) — ignoring")
             return
         }
-        guard connection.identity != nil else {
-            Logger.device.warning("connectionProvider delivered connection with nil identity — ignoring")
+        guard let identity = link.identity else {
+            Logger.device.warning("Link delivered with nil identity — ignoring")
             return
         }
         
         do {
-            let deviceId = try connection.identity!.getDeviceId() as Device.Id
+            let deviceId = try identity.getDeviceId() as Device.Id
             if let device = self.devices[deviceId] {
-                device.addLink(connection)
+                device.addLink(link)
             }
             else if let device = self.recentDevices.removeValue(forKey: deviceId)?.device {
-                self.readdDevice(device, connection: connection)
+                self.readdDevice(device, link: link)
             }
             else {
-                try self.addNewDevice(withId: deviceId, connection: connection)
+                try self.addNewDevice(withId: deviceId, link: link)
             }
         }
         catch {
-            Logger.device.error("Error adding new connection: \(error, privacy: .public)")
+            Logger.device.error("Error adding new link: \(error, privacy: .public)")
         }
     }
     
@@ -225,8 +236,8 @@ public class DeviceManager: ConnectionProviderDelegate, DeviceDelegate, DeviceDa
     
     // MARK: Private methods
     
-    private func addNewDevice(withId id: Device.Id, connection: Connection) throws {
-        let device = try Device(link: connection, config: self.config.deviceConfig(for: id))
+    private func addNewDevice(withId id: Device.Id, link: DeviceLink) throws {
+        let device = try Device(link: link, config: self.config.deviceConfig(for: id))
         device.delegate = self
         
         let services: [DeviceDataPacketHandler] = self.serviceManager.services(supportingIncomingCapabilities: device.outgoingCapabilities)
@@ -249,8 +260,8 @@ public class DeviceManager: ConnectionProviderDelegate, DeviceDelegate, DeviceDa
         }
     }
     
-    private func readdDevice(_ device: Device, connection: Connection) {
-        device.addLink(connection)
+    private func readdDevice(_ device: Device, link: DeviceLink) {
+        device.addLink(link)
         device.delegate = self
         self.devices[device.id] = device
         self.device(device, didChangeReachabilityStatus: device.isReachable)

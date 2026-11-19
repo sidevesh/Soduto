@@ -90,6 +90,7 @@ struct GeneralSettingsView: View {
 
     @AppStorage(AppDefaultsStore.Preferences.deviceTypeKey) private var deviceType = 0
     @AppStorage(AppDefaultsStore.Preferences.disableSharePopUpKey) private var sendToOnlyDevice = false
+    @AppStorage(AppDefaultsStore.Preferences.Bluetooth.enabledKey) private var bluetoothEnabled = false
 
     var body: some View {
         Form {
@@ -118,6 +119,13 @@ struct GeneralSettingsView: View {
             }
 
             Section {
+                Toggle(isOn: $bluetoothEnabled) {
+                    Text("Connect over Bluetooth")
+                    Text("Also reach phones over Bluetooth, for when they aren’t on the same network. Pair the phone with this Mac in System Settings › Bluetooth and turn on Bluetooth in KDE Connect’s settings on the phone. File transfers go over the network when it’s available.")
+                }
+            }
+            
+            Section {
                 LabeledContent {
                     Button("Open Dashboard", action: model.onOpenDashboard)
                 } label: {
@@ -127,7 +135,7 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 400)
+        .frame(width: 520, height: 480)
     }
 }
 
