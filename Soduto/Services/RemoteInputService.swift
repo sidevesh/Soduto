@@ -308,8 +308,10 @@ public class RemoteInputService: IncomingService {
         }
         
         sequence()
-        usleep(50_000) // 50 ms inter-click gap
-        sequence()
+        // 50 ms between the two sequences, without blocking the thread handling packets
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) {
+            sequence()
+        }
     }
     
     private func pressPointer(button: CGMouseButton) {

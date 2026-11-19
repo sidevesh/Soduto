@@ -59,10 +59,6 @@ public class TextFieldWithLinks: NSTextField {
         let string = NSMutableAttributedString(attributedString: self.attributedStringValue)
         if let font = self.font {
             let paragraphStyle = NSMutableParagraphStyle()
-            if #available(OSX 10.13, *) {}
-            else {
-                paragraphStyle.lineSpacing = 1
-            }
             string.applyDefaultAttributes([
                 NSAttributedString.Key.font: font,
                 NSAttributedString.Key.paragraphStyle: paragraphStyle

@@ -327,48 +327,33 @@ public class Configuration: ConnectionConfiguration, DeviceManagerConfiguration,
         return self.capabilitiesDataSource?.outgoingCapabilities ?? Set()
     }
     
+    /// Open at Login, through the login items service (`SMAppService.mainApp`)
     public var launchOnLogin: Bool {
         get {
-            if #available(macOS 13.0, *) {
-                return SMAppService.mainApp.status == .enabled
-            } else {
-                return self.userDefaults.bool(forKey: Property.launchOnLogin.rawValue)
-            }
+            SMAppService.mainApp.status == .enabled
         }
         set {
-            if #available(macOS 13.0, *) {
-                let loginItem = SMAppService.mainApp
-                
-                do {
-                    if newValue {
-                        if loginItem.status != .enabled {
-                            try loginItem.register()
-                        }
-                    } else {
-                        if loginItem.status == .enabled {
-                            try loginItem.unregister()
-                        }
+            let loginItem = SMAppService.mainApp
+            do {
+                if newValue {
+                    if loginItem.status != .enabled {
+                        try loginItem.register()
                     }
-                    
-                    let isEnabled = loginItem.status == .enabled
-                    self.userDefaults.set(isEnabled, forKey: Property.launchOnLogin.rawValue)
-                } catch {
-                    if newValue {
-                        self.userDefaults.set(false, forKey: Property.launchOnLogin.rawValue)
-                        SMAppService.openSystemSettingsLoginItems()
-                        UserNotificationHelper.show(
-                            title: "Launch on Login",
-                            body: "Please enable Soduto under Login Items manually",
-                            sound: true,
-                            id: "LoginItemApproval",
-                            urgency: .active
-                        )
-                    }
+                } else if loginItem.status == .enabled {
+                    try loginItem.unregister()
                 }
-            } else {
-                if SMLoginItemSetEnabled((Bundle.main.bundleIdentifier! + "Launcher") as CFString, newValue) {
-                    self.userDefaults.set(newValue, forKey: Property.launchOnLogin.rawValue)
-                }
+                self.userDefaults.set(loginItem.status == .enabled, forKey: Property.launchOnLogin.rawValue)
+            } catch {
+                guard newValue else { return }
+                self.userDefaults.set(false, forKey: Property.launchOnLogin.rawValue)
+                SMAppService.openSystemSettingsLoginItems()
+                UserNotificationHelper.show(
+                    title: "Launch on Login",
+                    body: "Please enable Soduto under Login Items manually",
+                    sound: true,
+                    id: "LoginItemApproval",
+                    urgency: .active
+                )
             }
         }
     }

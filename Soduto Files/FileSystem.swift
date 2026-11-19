@@ -112,11 +112,7 @@ extension FileSystem {
     }
     
     var tempDownloadsDirectory: URL {
-        if #available(OSX 10.12, *) {
-            return FileManager.default.temporaryDirectory
-        } else {
-            return (try? FileManager.default.url(for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        }
+        return FileManager.default.temporaryDirectory
     }
     
     func isUnderRoot(_ url: URL) -> Bool {

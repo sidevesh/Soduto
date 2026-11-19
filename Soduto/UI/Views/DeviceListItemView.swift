@@ -124,9 +124,7 @@ public class DeviceListItemView: NSTableCellView {
             actionButton.controlSize = .small
             actionButton.isBordered = true
             
-            if #available(macOS 10.14, *) {
-                actionButton.contentTintColor = NSColor.controlAccentColor
-            }
+            actionButton.contentTintColor = NSColor.controlAccentColor
         }
         
         infoButton.bezelStyle = .inline
@@ -151,9 +149,7 @@ public class DeviceListItemView: NSTableCellView {
         } else if let imageView = self.imageView {
             imageView.alphaValue = 0.4
         }
-        if #available(macOS 10.14, *) {
-            self.imageView?.contentTintColor = .labelColor
-        }
+        self.imageView?.contentTintColor = .labelColor
     }
 }
 

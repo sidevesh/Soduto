@@ -36,9 +36,7 @@ import Cocoa
         self.isBordered = false
         self.alignment = .natural
         self.setButtonType(.momentaryLight)
-        if #available(OSX 10.12.2, *) {
-            self.bezelColor = NSColor.selectedMenuItemColor
-        }
+        self.bezelColor = NSColor.selectedMenuItemColor
         self.font = self.label.font
         self.title = menuItem.title
         self.label.stringValue = menuItem.title

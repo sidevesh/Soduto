@@ -58,9 +58,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, BrowserWindowControllerDeleg
     // MARK: NSApplicationDelegate
     
     func applicationWillFinishLaunching(_ notification: Notification) {
-        if #available(OSX 10.12, *) {
-            NSWindow.allowsAutomaticWindowTabbing = true
-        }
+        NSWindow.allowsAutomaticWindowTabbing = true
         
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)), forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
     }
@@ -116,21 +114,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, BrowserWindowControllerDeleg
     @IBAction func newTab(_ sender: Any?) {
         guard let controller = self.keyBrowserWindowController else { NSSound.beep(); return }
         let newController = newBrowserWindow(with: controller.fileSystem)
-        if #available(OSX 10.12, *) {
-            if let newWindow = newController.window {
-                controller.window?.addTabbedWindow(newWindow, ordered: .above)
-            }
+        if let newWindow = newController.window {
+            controller.window?.addTabbedWindow(newWindow, ordered: .above)
         }
     }
     
     @IBAction func closeTabGroup(_ sender: Any?) {
         guard let controller = self.keyBrowserWindowController else { NSSound.beep(); return }
-        if #available(OSX 10.12, *) {
-            controller.window?.tabbedWindows?.forEach { $0.close() }
-        }
-        else {
-            controller.window?.close()
-        }
+        controller.window?.tabbedWindows?.forEach { $0.close() }
     }
     
     @IBAction func close(_ sender: Any?) {
@@ -146,12 +137,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, BrowserWindowControllerDeleg
         case MenuItemTags.about: return true
         case MenuItemTags.newWindow: return keyBrowserWindowController != nil
         case MenuItemTags.newTab:
-            if #available(OSX 10.12, *) {
-                menuItem.isHidden = false
-            }
-            else {
-                menuItem.isHidden = true
-            }
+            menuItem.isHidden = false
             return keyBrowserWindowController != nil
         case MenuItemTags.closeTabGroup:
             let available = isWindowTabbed(keyBrowserWindowController?.window)
@@ -200,11 +186,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, BrowserWindowControllerDeleg
     }
     
     private func isWindowTabbed(_ window: NSWindow?) -> Bool {
-        if #available(OSX 10.12, *) {
-            return (window?.tabbedWindows?.count ?? 0) > 1
-        } else {
-            return false
-        }
+        return (window?.tabbedWindows?.count ?? 0) > 1
     }
     
     @objc func handleGetURLEvent(_ event:NSAppleEventDescriptor, withReplyEvent replyEvent:NSAppleEventDescriptor) {

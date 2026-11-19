@@ -25,19 +25,15 @@ extension UNMutableNotificationContent {
     
     /// Sets the interruption level for the notification.
     /// On macOS 12.0+, this maps to `UNNotificationInterruptionLevel`.
-    /// On earlier versions, this is a no-op.
     /// - Parameter urgency: The urgency level for the notification.
     public func setUrgency(_ urgency: NotificationUrgency) {
-        if #available(macOS 12.0, *) {
-            switch urgency {
-            case .passive:
-                self.interruptionLevel = .passive
-            case .active:
-                self.interruptionLevel = .active
-            case .timeSensitive:
-                self.interruptionLevel = .timeSensitive
-            }
+        switch urgency {
+        case .passive:
+            self.interruptionLevel = .passive
+        case .active:
+            self.interruptionLevel = .active
+        case .timeSensitive:
+            self.interruptionLevel = .timeSensitive
         }
-        // On macOS 11.0, interruptionLevel is not available - no-op
     }
 }

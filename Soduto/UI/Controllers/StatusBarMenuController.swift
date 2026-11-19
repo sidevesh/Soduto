@@ -43,11 +43,7 @@ public class StatusBarMenuController: NSObject, NSWindowDelegate, NSMenuDelegate
         statusBarIcon.isTemplate = true
         self.sodutoStatusIcon = statusBarIcon
         
-        if #available(macOS 10.14, *) {
-            self.statusBarItem.button?.image = statusBarIcon
-        } else {
-            self.statusBarItem.image = statusBarIcon
-        }
+        self.statusBarItem.button?.image = statusBarIcon
         self.statusBarItem.menu = self.statusBarMenu
         
         self.mediaSyncMenuItem.target = self

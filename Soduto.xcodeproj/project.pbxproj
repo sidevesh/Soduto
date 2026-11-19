@@ -18,9 +18,6 @@
 		0236D2BA1F9CFBAA00E0F6A6 /* License.html in Resources */ = {isa = PBXBuildFile; fileRef = 0236D2AD1F9CFB1A00E0F6A6 /* License.html */; };
 		0236D2BB1F9D067A00E0F6A6 /* Acknowledgements.html in Resources */ = {isa = PBXBuildFile; fileRef = 0236D2B81F9CFB2500E0F6A6 /* Acknowledgements.html */; };
 		0236D2BC1F9D067A00E0F6A6 /* License.html in Resources */ = {isa = PBXBuildFile; fileRef = 0236D2AD1F9CFB1A00E0F6A6 /* License.html */; };
-		0248E0FF1F23C4AF00C411F7 /* DevicePreferencesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0248E0FE1F23C4AF00C411F7 /* DevicePreferencesViewController.swift */; };
-		024B435F1F23BEEB00037A33 /* PreferencesWindow.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 024B435D1F23BEEB00037A33 /* PreferencesWindow.storyboard */; };
-		024F8B191F24FC7700D6E504 /* ServicePreferencesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 024F8B181F24FC7700D6E504 /* ServicePreferencesViewController.swift */; };
 		026BFB581F194D7D00D888E2 /* DeviceInfoWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 026BFB571F194D7D00D888E2 /* DeviceInfoWindowController.swift */; };
 		02968D0C204C4B9100FCE5E0 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 02968CFE204C4B9000FCE5E0 /* README.md */; };
 		02EC48B51F229CCE00C9370F /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02EC48B41F229CCE00C9370F /* Configuration.swift */; };
@@ -79,7 +76,6 @@
 		31864DCF293C3CE100334902 /* SharedUserDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31864DCE293C3CE100334902 /* SharedUserDefaults.swift */; };
 		31864DD0293C3CE100334902 /* SharedUserDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31864DCE293C3CE100334902 /* SharedUserDefaults.swift */; };
 		31905C172F75F22900F259CE /* DigitizerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31905C162F75F22800F259CE /* DigitizerService.swift */; };
-		31905C202F78865B00F259CE /* Icon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 31905C1F2F78865B00F259CE /* Icon.icon */; };
 		31905C212F78865B00F259CE /* Icon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 31905C1F2F78865B00F259CE /* Icon.icon */; };
 		31905C222F78865B00F259CE /* Icon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 31905C1F2F78865B00F259CE /* Icon.icon */; };
 		31905C232F78865B00F259CE /* Icon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 31905C1F2F78865B00F259CE /* Icon.icon */; };
@@ -122,7 +118,6 @@
 		840538201ED62282003798AA /* WelcomeWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8405381F1ED62282003798AA /* WelcomeWindowController.swift */; };
 		840FC2F91DEF6AF400AC4824 /* ClipboardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 840FC2F81DEF6AF400AC4824 /* ClipboardService.swift */; };
 		84218DC81D789BAB00C7CEBE /* DeviceListItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84218DC71D789BAB00C7CEBE /* DeviceListItemView.swift */; };
-		8421A8E71D761409008AC833 /* PreferencesWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8421A8E61D761409008AC833 /* PreferencesWindowController.swift */; };
 		842505E91ED1BD3C00AEE25F /* RemoteInputService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842505E81ED1BD3C00AEE25F /* RemoteInputService.swift */; };
 		842506371ED3692300AEE25F /* WelcomeWindow.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 842506351ED3692300AEE25F /* WelcomeWindow.storyboard */; };
 		842506731ED4CEF800AEE25F /* DeviceListController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842506721ED4CEF800AEE25F /* DeviceListController.swift */; };
@@ -131,10 +126,6 @@
 		843107731E3D32A300AE96AB /* SendMessageWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843107721E3D32A300AE96AB /* SendMessageWindowController.swift */; };
 		843301661D2D8CB8008934BB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 843301651D2D8CB8008934BB /* Assets.xcassets */; };
 		843301691D2D8CB8008934BB /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 843301671D2D8CB8008934BB /* MainMenu.xib */; };
-		8435AEFA1E26DD27005CD719 /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = 8435AEF91E26DD27005CD719 /* AppDelegate.m */; };
-		8435AEFD1E26DD27005CD719 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 8435AEFC1E26DD27005CD719 /* main.m */; };
-		8435AF021E26DD27005CD719 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 8435AF001E26DD27005CD719 /* MainMenu.xib */; };
-		8435AF071E26DD83005CD719 /* SodutoLauncher.app in Embed Login Items */ = {isa = PBXBuildFile; fileRef = 8435AEF61E26DD27005CD719 /* SodutoLauncher.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		8436DEF81E956DA000529362 /* Timer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8436DEF71E956DA000529362 /* Timer.swift */; };
 		8436DEFA1E958ABA00529362 /* FileManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8436DEF91E958ABA00529362 /* FileManager.swift */; };
 		8438A9261E45145F00922155 /* StatusBarApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8438A9251E45145F00922155 /* StatusBarApplication.swift */; };
@@ -160,7 +151,6 @@
 		845BE2E61EC2476200F3BD62 /* HoverButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 845BE2E51EC2476200F3BD62 /* HoverButton.swift */; };
 		845BE2E71EC2476500F3BD62 /* HoverButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 845BE2E51EC2476200F3BD62 /* HoverButton.swift */; };
 		845BE2E91EC2626E00F3BD62 /* CollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 845BE2E81EC2626E00F3BD62 /* CollectionView.swift */; };
-		8461F35C1EC0FBC500E99C17 /* LoadingView.xib in Resources */ = {isa = PBXBuildFile; fileRef = 8461F35A1EC0FBC500E99C17 /* LoadingView.xib */; };
 		84651A721E599A3C00D17601 /* BatteryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84651A711E599A3C00D17601 /* BatteryService.swift */; };
 		84651A741E59F9C900D17601 /* MenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84651A731E59F9C900D17601 /* MenuView.swift */; };
 		84651A761E5AEBE100D17601 /* SftpService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84651A751E5AEBE100D17601 /* SftpService.swift */; };
@@ -177,11 +167,6 @@
 		849927801E6C5CA600AF8CF4 /* IconItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8499277E1E6C5CA600AF8CF4 /* IconItem.swift */; };
 		849927811E6C5CA600AF8CF4 /* IconItem.xib in Resources */ = {isa = PBXBuildFile; fileRef = 8499277F1E6C5CA600AF8CF4 /* IconItem.xib */; };
 		849927831E6C5CD600AF8CF4 /* FileItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849927821E6C5CD600AF8CF4 /* FileItem.swift */; };
-		849961C11D57287F002B893A /* CollectionUtils.m in Sources */ = {isa = PBXBuildFile; fileRef = 849961BC1D57287F002B893A /* CollectionUtils.m */; };
-		849961C31D57287F002B893A /* Test.m in Sources */ = {isa = PBXBuildFile; fileRef = 849961C01D57287F002B893A /* Test.m */; };
-		849961C61D5728B2002B893A /* ExceptionUtils.m in Sources */ = {isa = PBXBuildFile; fileRef = 849961C51D5728B2002B893A /* ExceptionUtils.m */; };
-		8499620E1D5728EE002B893A /* Test_Assertions.m in Sources */ = {isa = PBXBuildFile; fileRef = 849961F31D5728EE002B893A /* Test_Assertions.m */; };
-		849962131D572B1F002B893A /* Logging.m in Sources */ = {isa = PBXBuildFile; fileRef = 849962121D572B1F002B893A /* Logging.m */; };
 		84A16BE01E9EBADD00DE2C0B /* Sequence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A16BDF1E9EBADD00DE2C0B /* Sequence.swift */; };
 		84C545E01EABC14E005A8107 /* SftpFileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84C545DF1EABC14E005A8107 /* SftpFileSystem.swift */; };
 		84D071681EB91F5D004D383A /* Soduto Files.app in Embed Helper Executables */ = {isa = PBXBuildFile; fileRef = 845BC70A1E69F00E00DC9B81 /* Soduto Files.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -252,17 +237,6 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		843E178A1E26B613001D0444 /* Embed Login Items */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = Contents/Library/LoginItems;
-			dstSubfolderSpec = 1;
-			files = (
-				8435AF071E26DD83005CD719 /* SodutoLauncher.app in Embed Login Items */,
-			);
-			name = "Embed Login Items";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		84D071481EB9076F004D383A /* Embed XPC Services */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -294,9 +268,6 @@
 		0236B63B1F9936C80020DA9F /* AboutWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutWindowController.swift; sourceTree = "<group>"; };
 		0236D2AD1F9CFB1A00E0F6A6 /* License.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = License.html; sourceTree = "<group>"; };
 		0236D2B81F9CFB2500E0F6A6 /* Acknowledgements.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = Acknowledgements.html; sourceTree = "<group>"; };
-		0248E0FE1F23C4AF00C411F7 /* DevicePreferencesViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = DevicePreferencesViewController.swift; sourceTree = "<group>"; };
-		024B435E1F23BEEB00037A33 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/PreferencesWindow.storyboard; sourceTree = "<group>"; };
-		024F8B181F24FC7700D6E504 /* ServicePreferencesViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ServicePreferencesViewController.swift; sourceTree = "<group>"; };
 		026BFB571F194D7D00D888E2 /* DeviceInfoWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceInfoWindowController.swift; sourceTree = "<group>"; };
 		02968CD8204C42F500FCE5E0 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		02968CFE204C4B9000FCE5E0 /* README.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
@@ -389,7 +360,6 @@
 		840FC2F81DEF6AF400AC4824 /* ClipboardService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ClipboardService.swift; sourceTree = "<group>"; };
 		841E814C1D809C360096A846 /* Soduto.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Soduto.entitlements; sourceTree = "<group>"; };
 		84218DC71D789BAB00C7CEBE /* DeviceListItemView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = DeviceListItemView.swift; sourceTree = "<group>"; };
-		8421A8E61D761409008AC833 /* PreferencesWindowController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PreferencesWindowController.swift; sourceTree = "<group>"; };
 		842505E81ED1BD3C00AEE25F /* RemoteInputService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = RemoteInputService.swift; sourceTree = "<group>"; };
 		842506361ED3692300AEE25F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/WelcomeWindow.storyboard; sourceTree = "<group>"; };
 		842506721ED4CEF800AEE25F /* DeviceListController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = DeviceListController.swift; sourceTree = "<group>"; };
@@ -400,13 +370,6 @@
 		843301651D2D8CB8008934BB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		843301681D2D8CB8008934BB /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
 		8433016A1D2D8CB8008934BB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		8435AEF61E26DD27005CD719 /* SodutoLauncher.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SodutoLauncher.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		8435AEF81E26DD27005CD719 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
-		8435AEF91E26DD27005CD719 /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
-		8435AEFC1E26DD27005CD719 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
-		8435AF011E26DD27005CD719 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
-		8435AF031E26DD27005CD719 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		8435AF081E26DE05005CD719 /* SodutoLauncher.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SodutoLauncher.entitlements; sourceTree = "<group>"; };
 		8436DEF71E956DA000529362 /* Timer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Timer.swift; sourceTree = "<group>"; };
 		8436DEF91E958ABA00529362 /* FileManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = FileManager.swift; sourceTree = "<group>"; };
 		8438A9251E45145F00922155 /* StatusBarApplication.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = StatusBarApplication.swift; sourceTree = "<group>"; };
@@ -434,7 +397,6 @@
 		845BE2E11EC246EE00F3BD62 /* LoadingWindowController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LoadingWindowController.swift; sourceTree = "<group>"; };
 		845BE2E51EC2476200F3BD62 /* HoverButton.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = HoverButton.swift; sourceTree = "<group>"; };
 		845BE2E81EC2626E00F3BD62 /* CollectionView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = CollectionView.swift; sourceTree = "<group>"; };
-		8461F35B1EC0FBC500E99C17 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/LoadingView.xib; sourceTree = "<group>"; };
 		84651A711E599A3C00D17601 /* BatteryService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BatteryService.swift; sourceTree = "<group>"; };
 		84651A731E59F9C900D17601 /* MenuView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MenuView.swift; sourceTree = "<group>"; };
 		84651A751E5AEBE100D17601 /* SftpService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SftpService.swift; sourceTree = "<group>"; };
@@ -453,16 +415,6 @@
 		8499277E1E6C5CA600AF8CF4 /* IconItem.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = IconItem.swift; sourceTree = "<group>"; };
 		8499277F1E6C5CA600AF8CF4 /* IconItem.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = IconItem.xib; sourceTree = "<group>"; };
 		849927821E6C5CD600AF8CF4 /* FileItem.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = FileItem.swift; sourceTree = "<group>"; };
-		849961B41D5726B0002B893A /* LICENSE.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = LICENSE.txt; path = MYUtilities/LICENSE.txt; sourceTree = "<group>"; };
-		849961BB1D57287F002B893A /* CollectionUtils.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = CollectionUtils.h; path = MYUtilities/CollectionUtils.h; sourceTree = "<group>"; };
-		849961BC1D57287F002B893A /* CollectionUtils.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = CollectionUtils.m; path = MYUtilities/CollectionUtils.m; sourceTree = "<group>"; };
-		849961BF1D57287F002B893A /* Test.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Test.h; path = MYUtilities/Test.h; sourceTree = "<group>"; };
-		849961C01D57287F002B893A /* Test.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = Test.m; path = MYUtilities/Test.m; sourceTree = "<group>"; };
-		849961C41D5728B2002B893A /* ExceptionUtils.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ExceptionUtils.h; path = MYUtilities/ExceptionUtils.h; sourceTree = "<group>"; };
-		849961C51D5728B2002B893A /* ExceptionUtils.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = ExceptionUtils.m; path = MYUtilities/ExceptionUtils.m; sourceTree = "<group>"; };
-		849961F31D5728EE002B893A /* Test_Assertions.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = Test_Assertions.m; path = MYUtilities/Test_Assertions.m; sourceTree = "<group>"; };
-		849962111D572B1F002B893A /* Logging.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Logging.h; path = MYUtilities/Logging.h; sourceTree = "<group>"; };
-		849962121D572B1F002B893A /* Logging.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = Logging.m; path = MYUtilities/Logging.m; sourceTree = "<group>"; };
 		84A16BDF1E9EBADD00DE2C0B /* Sequence.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Sequence.swift; sourceTree = "<group>"; };
 		84C545DF1EABC14E005A8107 /* SftpFileSystem.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SftpFileSystem.swift; sourceTree = "<group>"; };
 		84D903A11DC696A600E61DA7 /* CertificateUtils.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = CertificateUtils.swift; sourceTree = "<group>"; };
@@ -506,13 +458,6 @@
 				31366D432F4131470013911D /* NIOFoundationCompat in Frameworks */,
 				31DB2F0F2F3CEE8D00654096 /* NIOSSL in Frameworks */,
 				319320BC2F66402700A46DD9 /* MediaRemoteAdapter in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		8435AEF31E26DD27005CD719 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -653,9 +598,7 @@
 			children = (
 				02150DE61F17F98F00401CC6 /* DeviceInfoWindow.xib */,
 				844AF28E1ED6185100422B7F /* DevicesList.storyboard */,
-				8461F35A1EC0FBC500E99C17 /* LoadingView.xib */,
 				843301671D2D8CB8008934BB /* MainMenu.xib */,
-				024B435D1F23BEEB00037A33 /* PreferencesWindow.storyboard */,
 				8431076F1E3D23C900AE96AB /* SendMessageWindow.xib */,
 				842506351ED3692300AEE25F /* WelcomeWindow.storyboard */,
 			);
@@ -708,13 +651,10 @@
 				2B7D26C08B62B1483AA9D504 /* SettingsWindowController.swift */,
 				026BFB571F194D7D00D888E2 /* DeviceInfoWindowController.swift */,
 				842506721ED4CEF800AEE25F /* DeviceListController.swift */,
-				0248E0FE1F23C4AF00C411F7 /* DevicePreferencesViewController.swift */,
 				317F930C2FAE0F0600CDC0EC /* FindMyWindowController.swift */,
 				849237EB1DE5FC9600D95BBA /* PairingInterfaceController.swift */,
 				31F8A6052F4A555D00CA5A61 /* PairingWindowController.swift */,
-				8421A8E61D761409008AC833 /* PreferencesWindowController.swift */,
 				843107721E3D32A300AE96AB /* SendMessageWindowController.swift */,
-				024F8B181F24FC7700D6E504 /* ServicePreferencesViewController.swift */,
 				3116837B2FB92CEC00B1AEF8 /* SMSWindowController.swift */,
 				8FC977F01D4778E9001ADF7E /* StatusBarMenuController.swift */,
 				8405381F1ED62282003798AA /* WelcomeWindowController.swift */,
@@ -733,7 +673,6 @@
 				845BE2CD1EC2443300F3BD62 /* Shared */,
 				843301621D2D8CB8008934BB /* Soduto */,
 				845BC70B1E69F00E00DC9B81 /* Soduto Files */,
-				8435AEF71E26DD27005CD719 /* SodutoLauncher */,
 				847EF4C31DC9049D00360BBE /* SodutoTests */,
 				31F3A150293B5EA300550088 /* Soduto Share */,
 				843301611D2D8CB8008934BB /* Products */,
@@ -745,7 +684,6 @@
 			children = (
 				843301601D2D8CB8008934BB /* Soduto.app */,
 				847EF4C21DC9049D00360BBE /* SodutoTests.xctest */,
-				8435AEF61E26DD27005CD719 /* SodutoLauncher.app */,
 				845BC70A1E69F00E00DC9B81 /* Soduto Files.app */,
 				31F3A14F293B5EA300550088 /* Soduto Share.appex */,
 			);
@@ -768,32 +706,10 @@
 				843301651D2D8CB8008934BB /* Assets.xcassets */,
 				312E770B2938AB7400F29BFA /* App Icons */,
 				8456F4A41D7DE31A006EFE19 /* Core */,
-				849961B31D572664002B893A /* MyUtilities */,
 				84FA45EB1DDF51EB00EF3992 /* Services */,
 				8421A8E31D76123E008AC833 /* UI */,
 			);
 			path = Soduto;
-			sourceTree = "<group>";
-		};
-		8435AEF71E26DD27005CD719 /* SodutoLauncher */ = {
-			isa = PBXGroup;
-			children = (
-				8435AF081E26DE05005CD719 /* SodutoLauncher.entitlements */,
-				8435AEF81E26DD27005CD719 /* AppDelegate.h */,
-				8435AEF91E26DD27005CD719 /* AppDelegate.m */,
-				8435AF001E26DD27005CD719 /* MainMenu.xib */,
-				8435AF031E26DD27005CD719 /* Info.plist */,
-				8435AEFB1E26DD27005CD719 /* Supporting Files */,
-			);
-			path = SodutoLauncher;
-			sourceTree = "<group>";
-		};
-		8435AEFB1E26DD27005CD719 /* Supporting Files */ = {
-			isa = PBXGroup;
-			children = (
-				8435AEFC1E26DD27005CD719 /* main.m */,
-			);
-			name = "Supporting Files";
 			sourceTree = "<group>";
 		};
 		8456F4A41D7DE31A006EFE19 /* Core */ = {
@@ -943,23 +859,6 @@
 			path = SodutoTests;
 			sourceTree = "<group>";
 		};
-		849961B31D572664002B893A /* MyUtilities */ = {
-			isa = PBXGroup;
-			children = (
-				849962111D572B1F002B893A /* Logging.h */,
-				849962121D572B1F002B893A /* Logging.m */,
-				849961BB1D57287F002B893A /* CollectionUtils.h */,
-				849961BC1D57287F002B893A /* CollectionUtils.m */,
-				849961C41D5728B2002B893A /* ExceptionUtils.h */,
-				849961C51D5728B2002B893A /* ExceptionUtils.m */,
-				849961B41D5726B0002B893A /* LICENSE.txt */,
-				849961F31D5728EE002B893A /* Test_Assertions.m */,
-				849961BF1D57287F002B893A /* Test.h */,
-				849961C01D57287F002B893A /* Test.m */,
-			);
-			name = MyUtilities;
-			sourceTree = "<group>";
-		};
 		84FA45EB1DDF51EB00EF3992 /* Services */ = {
 			isa = PBXGroup;
 			children = (
@@ -1013,7 +912,6 @@
 				8433015C1D2D8CB8008934BB /* Sources */,
 				8433015D1D2D8CB8008934BB /* Frameworks */,
 				8433015E1D2D8CB8008934BB /* Resources */,
-				843E178A1E26B613001D0444 /* Embed Login Items */,
 				84D071481EB9076F004D383A /* Embed XPC Services */,
 				84D071671EB91D2C004D383A /* Embed Helper Executables */,
 				31F3A15D293B5EA300550088 /* Embed Foundation Extensions */,
@@ -1028,23 +926,6 @@
 			name = Soduto;
 			productName = Soduto;
 			productReference = 843301601D2D8CB8008934BB /* Soduto.app */;
-			productType = "com.apple.product-type.application";
-		};
-		8435AEF51E26DD27005CD719 /* SodutoLauncher */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 8435AF041E26DD27005CD719 /* Build configuration list for PBXNativeTarget "SodutoLauncher" */;
-			buildPhases = (
-				8435AEF21E26DD27005CD719 /* Sources */,
-				8435AEF31E26DD27005CD719 /* Frameworks */,
-				8435AEF41E26DD27005CD719 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = SodutoLauncher;
-			productName = SodutoLauncher;
-			productReference = 8435AEF61E26DD27005CD719 /* SodutoLauncher.app */;
 			productType = "com.apple.product-type.application";
 		};
 		845BC7091E69F00E00DC9B81 /* Soduto Files */ = {
@@ -1107,15 +988,6 @@
 							};
 						};
 					};
-					8435AEF51E26DD27005CD719 = {
-						CreatedOnToolsVersion = 8.2.1;
-						ProvisioningStyle = Automatic;
-						SystemCapabilities = {
-							com.apple.Sandbox = {
-								enabled = 1;
-							};
-						};
-					};
 					845BC7091E69F00E00DC9B81 = {
 						CreatedOnToolsVersion = 8.2.1;
 						LastSwiftMigration = 1540;
@@ -1157,7 +1029,6 @@
 			targets = (
 				8433015F1D2D8CB8008934BB /* Soduto */,
 				847EF4C11DC9049D00360BBE /* SodutoTests */,
-				8435AEF51E26DD27005CD719 /* SodutoLauncher */,
 				845BC7091E69F00E00DC9B81 /* Soduto Files */,
 				31F3A14E293B5EA300550088 /* Soduto Share */,
 			);
@@ -1186,23 +1057,12 @@
 				02968D0C204C4B9100FCE5E0 /* README.md in Resources */,
 				845BE2DE1EC2465500F3BD62 /* LoadingWindow.xib in Resources */,
 				844AF28F1ED6185100422B7F /* DevicesList.storyboard in Resources */,
-				8461F35C1EC0FBC500E99C17 /* LoadingView.xib in Resources */,
 				843301661D2D8CB8008934BB /* Assets.xcassets in Resources */,
 				023382B31F8D58AC00A832DD /* AboutWindow.storyboard in Resources */,
 				319CBA282939662400DAE301 /* Phone.png in Resources */,
 				843301691D2D8CB8008934BB /* MainMenu.xib in Resources */,
 				31905C232F78865B00F259CE /* Icon.icon in Resources */,
-				024B435F1F23BEEB00037A33 /* PreferencesWindow.storyboard in Resources */,
 				842506371ED3692300AEE25F /* WelcomeWindow.storyboard in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		8435AEF41E26DD27005CD719 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				31905C202F78865B00F259CE /* Icon.icon in Resources */,
-				8435AF021E26DD27005CD719 /* MainMenu.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1253,7 +1113,6 @@
 			files = (
 				8468BDFB1DE8F10D003B9925 /* NotificationsService.swift in Sources */,
 				842506731ED4CEF800AEE25F /* DeviceListController.swift in Sources */,
-				0248E0FF1F23C4AF00C411F7 /* DevicePreferencesViewController.swift in Sources */,
 				31332A2D2F6CCD6A0085A93A /* DeviceDetailView.swift in Sources */,
 				31F8A6042F4A53DC00CA5A61 /* PairingView.swift in Sources */,
 				84218DC81D789BAB00C7CEBE /* DeviceListItemView.swift in Sources */,
@@ -1272,7 +1131,6 @@
 				02EC48B51F229CCE00C9370F /* Configuration.swift in Sources */,
 				3116837A2FB9269A00B1AEF8 /* UpdateManager.swift in Sources */,
 				840FC2F91DEF6AF400AC4824 /* ClipboardService.swift in Sources */,
-				849962131D572B1F002B893A /* Logging.m in Sources */,
 				843107731E3D32A300AE96AB /* SendMessageWindowController.swift in Sources */,
 				84FA45EA1DDF433400EF3992 /* Service.swift in Sources */,
 				8438A9261E45145F00922155 /* StatusBarApplication.swift in Sources */,
@@ -1285,14 +1143,11 @@
 				84651A721E599A3C00D17601 /* BatteryService.swift in Sources */,
 				849237EC1DE5FC9600D95BBA /* PairingInterfaceController.swift in Sources */,
 				3116837C2FB92CEC00B1AEF8 /* SMSWindowController.swift in Sources */,
-				849961C31D57287F002B893A /* Test.m in Sources */,
-				849961C11D57287F002B893A /* CollectionUtils.m in Sources */,
 				84FA45D91DDDCB3D00EF3992 /* DataPacket.swift in Sources */,
 				8FC977F11D4778E9001ADF7E /* StatusBarMenuController.swift in Sources */,
 				F826E6C92DB419AF00E736CE /* RunCommandsWindowController.swift in Sources */,
 				311BC28D2F2800D400E4A33F /* StableHashing.swift in Sources */,
 				02EC48B71F229CEE00C9370F /* ServiceConfiguration.swift in Sources */,
-				024F8B191F24FC7700D6E504 /* ServicePreferencesViewController.swift in Sources */,
 				849237A11DE224CF00D95BBA /* FindMyService.swift in Sources */,
 				317F930D2FAE0F0600CDC0EC /* FindMyWindowController.swift in Sources */,
 				3160AB8D2FB14C1100DE1870 /* RunCommandsView.swift in Sources */,
@@ -1310,7 +1165,6 @@
 				31E059E12F70B4DD0019F4FE /* VolumeBar.swift in Sources */,
 				84FFDA2A1E1D8D370069AC9A /* SimplePing.m in Sources */,
 				311BC28F2F2865A200E4A33F /* UserNotificationHelper.swift in Sources */,
-				849961C61D5728B2002B893A /* ExceptionUtils.m in Sources */,
 				3105288B2F49274400488ED4 /* MDNSDiscoveryProvider.swift in Sources */,
 				31A421952F43B526003B97FC /* PayloadPortRegistry.swift in Sources */,
 				311683872FB92D4700B1AEF8 /* ConversationListView.swift in Sources */,
@@ -1331,8 +1185,6 @@
 				310154833008CF89002E4BB2 /* BroadcastIdentity.swift in Sources */,
 				3152C3F32F353AFA005152CB /* Logger+Categories.swift in Sources */,
 				31965FFF2FDF29B9003A3B77 /* NotificationThreadPolicy.swift in Sources */,
-				8499620E1D5728EE002B893A /* Test_Assertions.m in Sources */,
-				8421A8E71D761409008AC833 /* PreferencesWindowController.swift in Sources */,
 				31AF2B112F6C9712002C7D38 /* SystemVolumeService.swift in Sources */,
 				849237991DE06EBC00D95BBA /* ServiceAction.swift in Sources */,
 				31332A2B2F6CCD5A0085A93A /* DeviceSidebarView.swift in Sources */,
@@ -1378,15 +1230,6 @@
 				31F8A60B2F4A642E00CA5A61 /* DeviceInfoView.swift in Sources */,
 				31F8A60C2F4A642E00CA5A61 /* DevicesListView.swift in Sources */,
 				317C4DF62F8A88AD00067638 /* SystemMediaController.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		8435AEF21E26DD27005CD719 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				8435AEFD1E26DD27005CD719 /* main.m in Sources */,
-				8435AEFA1E26DD27005CD719 /* AppDelegate.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1450,14 +1293,6 @@
 			name = DeviceInfoWindow.xib;
 			sourceTree = "<group>";
 		};
-		024B435D1F23BEEB00037A33 /* PreferencesWindow.storyboard */ = {
-			isa = PBXVariantGroup;
-			children = (
-				024B435E1F23BEEB00037A33 /* Base */,
-			);
-			name = PreferencesWindow.storyboard;
-			sourceTree = "<group>";
-		};
 		842506351ED3692300AEE25F /* WelcomeWindow.storyboard */ = {
 			isa = PBXVariantGroup;
 			children = (
@@ -1482,28 +1317,12 @@
 			name = MainMenu.xib;
 			sourceTree = "<group>";
 		};
-		8435AF001E26DD27005CD719 /* MainMenu.xib */ = {
-			isa = PBXVariantGroup;
-			children = (
-				8435AF011E26DD27005CD719 /* Base */,
-			);
-			name = MainMenu.xib;
-			sourceTree = "<group>";
-		};
 		845BC7101E69F00E00DC9B81 /* MainMenu.xib */ = {
 			isa = PBXVariantGroup;
 			children = (
 				845BC7111E69F00E00DC9B81 /* Base */,
 			);
 			name = MainMenu.xib;
-			sourceTree = "<group>";
-		};
-		8461F35A1EC0FBC500E99C17 /* LoadingView.xib */ = {
-			isa = PBXVariantGroup;
-			children = (
-				8461F35B1EC0FBC500E99C17 /* Base */,
-			);
-			name = LoadingView.xib;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */
@@ -1756,44 +1575,6 @@
 			};
 			name = Release;
 		};
-		8435AF051E26DD27005CD719 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Icon;
-				CODE_SIGN_ENTITLEMENTS = SodutoLauncher/SodutoLauncher.entitlements;
-				CODE_SIGN_IDENTITY = "Mac Developer";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
-				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = YES;
-				HEADER_SEARCH_PATHS = "$(inherited)";
-				INFOPLIST_FILE = SodutoLauncher/Info.plist;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited)";
-				PRODUCT_BUNDLE_IDENTIFIER = "$(BUNDLE_ID)Launcher";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-			};
-			name = Debug;
-		};
-		8435AF061E26DD27005CD719 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Icon;
-				CODE_SIGN_ENTITLEMENTS = SodutoLauncher/SodutoLauncher.entitlements;
-				CODE_SIGN_IDENTITY = "Mac Developer";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
-				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = YES;
-				HEADER_SEARCH_PATHS = "$(inherited)";
-				INFOPLIST_FILE = SodutoLauncher/Info.plist;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited)";
-				PRODUCT_BUNDLE_IDENTIFIER = "$(BUNDLE_ID)Launcher";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-			};
-			name = Release;
-		};
 		845BC7141E69F00E00DC9B81 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1904,15 +1685,6 @@
 			buildConfigurations = (
 				8433016E1D2D8CB8008934BB /* Debug */,
 				8433016F1D2D8CB8008934BB /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		8435AF041E26DD27005CD719 /* Build configuration list for PBXNativeTarget "SodutoLauncher" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				8435AF051E26DD27005CD719 /* Debug */,
-				8435AF061E26DD27005CD719 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
