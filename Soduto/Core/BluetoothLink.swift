@@ -72,10 +72,11 @@ final class BluetoothLink: NSObject, DeviceLink, PairingHandlerDelegate, @unchec
         pairingHandler.setPeerProtocolVersion(peerProtocolVersion)
         pairingHandler.updateVerificationCode()
         pairingHandler.timeoutHandler = { [weak self] in
+            let link = self
             DispatchQueue.main.async {
-                guard let self else { return }
-                self.pairingDelegate?.link(self, pairingFailed: DefaultPairingHandler.Error.timedOut)
-                self.pairingDelegate?.link(self, pairingStatusChanged: .Unpaired)
+                guard let link else { return }
+                link.pairingDelegate?.link(link, pairingFailed: DefaultPairingHandler.Error.timedOut)
+                link.pairingDelegate?.link(link, pairingStatusChanged: .Unpaired)
             }
         }
     }
@@ -203,6 +204,8 @@ final class BluetoothLink: NSObject, DeviceLink, PairingHandlerDelegate, @unchec
         guard state == .Open else { return false }
         let packetId = dataPacket.id
         queuedPackets.withLockUnchecked { $0.append((packetId, dataPacket, whenCompleted)) }
+        // Completion handlers are only ever called on the main thread (see finish)
+        nonisolated(unsafe) let whenCompleted = whenCompleted
         sendQueue.async { [weak self] in
             guard let self else { return }
             // Taken back by reclaimUnsentPackets() if the link closed in the meantime

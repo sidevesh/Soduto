@@ -98,6 +98,10 @@ Soduto implements the following KDE Connect plugin features (compatible with any
 - [x] Receive: Use remote device as keyboard and touchpad for macOS
 - [x] Send: Use macOS to control remote device input (experimental)
 
+#### Bluetooth
+- [x] Connect: Reach phones over Bluetooth as well as the network (KDE Connect's RFCOMM backend and multiplexing protocol), with pairing, packets and payloads. Turn on **Settings › General › Connect over Bluetooth**, pair the phone with the Mac in System Settings › Bluetooth, and turn on **Enable bluetooth (beta)** in KDE Connect's settings on the phone. File transfers use the network link whenever it's up.
+- [ ] Accept: Let the phone connect to the Mac (this Mac publishing the service); today the Mac connects to the phone
+
 #### Ping
 - [x] Receive: Receive ping messages from remote devices
 - [x] Send: Send ping messages to remote devices
