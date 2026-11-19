@@ -121,7 +121,7 @@ struct GeneralSettingsView: View {
             Section {
                 Toggle(isOn: $bluetoothEnabled) {
                     Text("Connect over Bluetooth")
-                    Text("Also reach phones over Bluetooth, for when they aren’t on the same network. Pair the phone with this Mac in System Settings › Bluetooth and turn on Bluetooth in KDE Connect’s settings on the phone. File transfers go over the network when it’s available.")
+                    Text("Also reach phones over Bluetooth, for when they aren’t on the same network. Pair the phone with this Mac in System Settings › Bluetooth, and turn on “Enable bluetooth (beta)” in KDE Connect’s settings on the phone. File transfers go over the network when it’s available.")
                 }
             }
             
