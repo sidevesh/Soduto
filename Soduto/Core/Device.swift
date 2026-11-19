@@ -43,14 +43,14 @@ public protocol DeviceDelegate: AnyObject {
 
 /// Functionality for handling incoming data packets from devices.
 public protocol DeviceDataPacketHandler: AnyObject {
-    /// Handle a packet received on a Connection.
-    func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool
+    /// Handle a packet received from `device` over `link`.
+    func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool
 }
 
 
-/// Device class represents a remote device. Multiple connections to the device may be used,
-/// but only one of the same kind (LAN, Bluetooth, etc.)
-public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, CustomStringConvertible {
+/// Device class represents a remote device. It may be reachable over several links at once, but only
+/// one of each kind (LAN, Bluetooth); `link(forSending:)` picks the link for each packet.
+public class Device: DeviceLinkDelegate, DeviceLinkPairingDelegate, Pairable, CustomStringConvertible {
     
     // MARK: Types
     
@@ -59,7 +59,7 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
     
     private struct PendingDataPacket {
         let packet: DataPacket
-        let completionHandler: Connection.SendingCompletionHandler?
+        let completionHandler: PacketSendingCompletionHandler?
     }
     
     
@@ -75,7 +75,7 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
     public let config: DeviceConfiguration
     
     public var peerCertificate: SecCertificate? {
-        if let certificate = self.connections.first?.peerCertificate { return certificate }
+        if let certificate = self.links.first?.peerCertificate { return certificate }
         return self.config.certificate
     }
     public var hostCertificate: SecCertificate? {
@@ -86,13 +86,13 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
     /// This code is displayed to users during pairing so they can verify
     /// both devices show the same code (MITM protection).
     public var verificationCode: String? {
-        return self.connections.first?.verificationCode
+        return self.links.first?.verificationCode
     }
     
     /// The peer's protocol version from the active connection.
     /// Returns nil if no connection is active.
     public var protocolVersion: UInt? {
-        return self.connections.first?.peerProtocolVersion
+        return self.links.first?.peerProtocolVersion
     }
     
     public private(set) var isReachable: Bool = false {
@@ -103,27 +103,26 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
         }
     }
     
-    private var connections: [Connection] = [] // Active connections
-    private var lingeringConnections: [Connection] = [] // Dismissed connections, waiting to finish work
+    private var links: [DeviceLink] = [] // Active links, at most one per kind
+    private var lingeringLinks: [DeviceLink] = [] // Replaced links, waiting to finish their uploads
     private var packetHandlers: [DeviceDataPacketHandler] = []
     private var pendingPackets: [PendingDataPacket] = []
     
     
     // MARK: Initialization / Deinitialization
     
-    /// Initialize Device with connection object. Device properties are initialized with connection
-    /// identity property values.
+    /// Initialize Device with its first link. Device properties are initialized from the link's identity.
     ///
     /// - parameters:
-    ///     - connection: Fully initialized (i.e. in Open state) connection to the device.
+    ///     - link: Fully initialized (i.e. in Open state) link to the device.
     ///     - config: Configuration instance for particular device
     ///
     /// - throws:
-    ///     `DeviceError.InvalidConnection` if connection state is not `.Open` or identity property is nil.
-    ///     `DataPacket.IdentityError` if connections identity property is invalid.
-    public init(connection: Connection, config: DeviceConfiguration) throws {
-        guard connection.state == .Open else { throw DeviceError.InvalidConnection }
-        guard let identity = connection.identity else { throw DeviceError.InvalidConnection }
+    ///     `DeviceError.InvalidConnection` if the link is not `.Open` or has no identity.
+    ///     `DataPacket.IdentityError` if the link's identity is invalid.
+    public init(link: DeviceLink, config: DeviceConfiguration) throws {
+        guard link.state == .Open else { throw DeviceError.InvalidConnection }
+        guard let identity = link.identity else { throw DeviceError.InvalidConnection }
         
         self.id = try identity.getDeviceId()
         self.name = try identity.getDeviceName()
@@ -133,7 +132,7 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
         self.config = config
         self.pairingStatus = self.config.isPaired ? .Paired : .Unpaired
         
-        self.addConnection(connection)
+        self.addLink(link)
         
         // update config with latest device name and type
         config.name = self.name
@@ -162,25 +161,20 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
     
     // MARK Public API
     
-    /// Add additional connection to the device. If the device has already contained a connection
-    /// of the same kind, the old one is removed.
+    /// Add a link to the device. A link of the same kind the device already has replaces it; the old
+    /// one closes once it has written what it queued.
     ///
-    /// - Parameter connection: Fully initialized (i.e. in Open state) connection to the device.
-    public func addConnection(_ connection: Connection) {
-        connection.delegate = self
-        connection.pairingDelegate = self
-        self.connections.append(connection)
+    /// - Parameter link: Fully initialized (i.e. in Open state) link to the device.
+    public func addLink(_ link: DeviceLink) {
+        link.delegate = self
+        link.pairingDelegate = self
+        self.links.append(link)
         
-        // remove connection of the same type if present
-        // do it after new connection added to avoid unnecessary device state switches
-        let index = self.connections.firstIndex { c in
-            guard c !== connection else { return false }
-            return Swift.type(of: c) == Swift.type(of: connection)
-        }
-        if let index = index {
-            let dismissedConnection = self.connections.remove(at: index)
-            self.lingeringConnections.append(dismissedConnection)
-            dismissedConnection.closeAfterWriting()
+        // Replace after adding, to avoid a pointless unreachable / reachable flip
+        if let index = self.links.firstIndex(where: { $0 !== link && $0.kind == link.kind }) {
+            let replaced = self.links.remove(at: index)
+            self.lingeringLinks.append(replaced)
+            replaced.closeAfterWriting()
         }
         
         self.updatePairingStatus()
@@ -214,13 +208,12 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
         return self.delegate?.serviceActions(for: self) ?? []
     }
     
-    /// Send a data packet to remote device. A most appropriate connection for the task
-    /// would be chosen automatically. Completion block may be provided - it would be called
-    /// when packet is successfully sent. On failure completion handler would not be called -
-    /// whole connection would be closed instead.
-    public func send(_ packet: DataPacket, whenCompleted: Connection.SendingCompletionHandler? = nil) {
-        if let connection = self.connectionForSending() {
-            let accepted = connection.send(packet, whenCompleted: whenCompleted)
+    /// Send a data packet to remote device over the link `link(forSending:)` picks. Completion block may
+    /// be provided - it would be called when packet is successfully sent. On failure completion handler
+    /// would not be called - the link would be closed instead.
+    public func send(_ packet: DataPacket, whenCompleted: PacketSendingCompletionHandler? = nil) {
+        if let link = self.link(forSending: packet) {
+            let accepted = link.send(packet, whenCompleted: whenCompleted)
             if !accepted {
                 let pendingPacket = PendingDataPacket(packet: packet, completionHandler: whenCompleted)
                 self.pendingPackets.insert(pendingPacket, at: 0)
@@ -230,17 +223,17 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
         }
     }
     
-    /// Cancels the upload for a specific packet ID across all active and lingering connections.
+    /// Cancels the upload for a specific packet ID across all active and lingering links.
     /// No-op if the packet ID is not found or the task has already finished.
     public func cancelUpload(forPacketId packetId: Int64) {
-        (connections + lingeringConnections).forEach { $0.cancelUpload(forPacketId: packetId) }
+        (links + lingeringLinks).forEach { $0.cancelUpload(forPacketId: packetId) }
     }
     
-    /// Sends a keepalive on every active connection to test liveness.
-    /// A write to a dead peer fails at kernel level (RST or retransmission drop), closing the connection through the normal teardown path and making the device available for rediscovery.
+    /// Sends a keepalive on every active link to test liveness.
+    /// A write to a dead peer fails (RST or retransmission drop), closing the link through the normal teardown path and making the device available for rediscovery.
     public func probeConnections() {
-        for connection in self.connections {
-            connection.sendKeepAlivePacket()
+        for link in self.links {
+            link.sendKeepAlivePacket()
         }
     }
     
@@ -253,80 +246,80 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
     }
     
     
-    // MARK: ConnectionDelegate
+    // MARK: DeviceLinkDelegate
     
-    public func connection(_ connection: Connection, didSwitchToState state: Connection.State) {
-        Logger.device.debug("connection(<\(String(describing: connection), privacy: .public)> didSwitchToState:<\(String(describing: state), privacy: .public)>)")
+    public func link(_ link: DeviceLink, didSwitchToState state: DeviceLinkState) {
+        Logger.device.debug("link(<\(String(describing: link), privacy: .public)> didSwitchToState:<\(String(describing: state), privacy: .public)>)")
         switch state {
         case .Closed:
-            if let index = self.connections.firstIndex(of: connection) {
-                let connection = self.connections.remove(at: index)
-                self.reclaimUnsentPackets(from: connection)
+            if let index = self.links.firstIndex(where: { $0 === link }) {
+                let link = self.links.remove(at: index)
+                self.reclaimUnsentPackets(from: link)
                 self.updateReachabilityStatus()
             }
-            else if let index = self.lingeringConnections.firstIndex(of: connection) {
-                if connection.hasActiveUploadTasks {
-                    Logger.device.debug("Device: keeping closed lingering connection for active uploads")
+            else if let index = self.lingeringLinks.firstIndex(where: { $0 === link }) {
+                if link.hasActiveUploadTasks {
+                    Logger.device.debug("Device: keeping closed lingering link for active uploads")
                 } else {
-                    let connection = self.lingeringConnections.remove(at: index)
-                    self.reclaimUnsentPackets(from: connection)
+                    let link = self.lingeringLinks.remove(at: index)
+                    self.reclaimUnsentPackets(from: link)
                 }
             }
             else {
-                assertionFailure("Connection not found in device connections list")
+                assertionFailure("Link not found in device links list")
             }
         default:
-            assertionFailure("Unexpected connection state switch: \(connection) -> \(state)")
+            assertionFailure("Unexpected link state switch: \(link) -> \(state)")
         }
     }
     
-    /// Forward upload progress events to services that explicitly opt-in by conforming to `ConnectionDelegate`.
-    public func connection(_ connection: Connection, uploadPayloadProgress bytesSent: Int64, totalBytes: Int64?, forPacket packet: DataPacket) {
+    /// Forward upload progress events to services that explicitly opt-in by conforming to `DeviceLinkDelegate`.
+    public func link(_ link: DeviceLink, uploadPayloadProgress bytesSent: Int64, totalBytes: Int64?, forPacket packet: DataPacket) {
         for handler in packetHandlers {
-            if let delegate = handler as? ConnectionDelegate {
-                delegate.connection(connection, uploadPayloadProgress: bytesSent, totalBytes: totalBytes, forPacket: packet)
+            if let delegate = handler as? DeviceLinkDelegate {
+                delegate.link(link, uploadPayloadProgress: bytesSent, totalBytes: totalBytes, forPacket: packet)
             }
         }
     }
     
-    /// Forward upload completion events to services that explicitly opt-in by conforming to `ConnectionDelegate`.
-    public func connection(_ connection: Connection, didSendPacket packet: DataPacket, uploadedPayload: Bool) {
+    /// Forward upload completion events to services that explicitly opt-in by conforming to `DeviceLinkDelegate`.
+    public func link(_ link: DeviceLink, didSendPacket packet: DataPacket, uploadedPayload: Bool) {
         for handler in packetHandlers {
-            if let delegate = handler as? ConnectionDelegate {
-                delegate.connection(connection, didSendPacket: packet, uploadedPayload: uploadedPayload)
+            if let delegate = handler as? DeviceLinkDelegate {
+                delegate.link(link, didSendPacket: packet, uploadedPayload: uploadedPayload)
             }
         }
         
-        // If this was a lingering connection and all uploads are now done, clean it up
-        if let index = self.lingeringConnections.firstIndex(of: connection), !connection.hasActiveUploadTasks {
-            Logger.device.debug("Device: lingering connection uploads complete, removing")
-            self.lingeringConnections.remove(at: index)
+        // If this was a lingering link and all uploads are now done, clean it up
+        if let index = self.lingeringLinks.firstIndex(where: { $0 === link }), !link.hasActiveUploadTasks {
+            Logger.device.debug("Device: lingering link uploads complete, removing")
+            self.lingeringLinks.remove(at: index)
         }
     }
     
-    public func connection(_ connection: Connection, didReadPacket packet: DataPacket) {
-        self.handle(packet: packet, onConnection: connection)
+    public func link(_ link: DeviceLink, didReadPacket packet: DataPacket) {
+        self.handle(packet: packet, onLink: link)
     }
     
-    public func connectionCapacityChanged(_ connection: Connection) {
+    public func linkCapacityChanged(_ link: DeviceLink) {
         self.sendPendingPackets()
     }
     
     
-    // MARK: ConnectionPairingDelegate
+    // MARK: DeviceLinkPairingDelegate
     
-    public func connection(_ connection: Connection, receivedPairingRequest request: PairingRequest) {
-        Logger.device.debug("Connection received pairing request from \(connection.peerAddress.description, privacy: .public)")
+    public func link(_ link: DeviceLink, receivedPairingRequest request: PairingRequest) {
+        Logger.device.debug("Link \(link.description, privacy: .public) received pairing request")
         self.updatePairingStatus()
         self.delegate?.device(self, didReceivePairingRequest: request)
     }
     
-    public func connection(_ connection: Connection, pairingFailed error: Error) {
-        Logger.device.debug("Connection pairing failed: \(error, privacy: .public)")
+    public func link(_ link: DeviceLink, pairingFailed error: Error) {
+        Logger.device.debug("Link pairing failed: \(error, privacy: .public)")
         self.delegate?.device(self, pairingFailed: error)
     }
     
-    public func connection(_ connection: Connection, pairingStatusChanged status: PairingStatus) {
+    public func link(_ link: DeviceLink, pairingStatusChanged status: PairingStatus) {
         self.updatePairingStatus()
     }
     
@@ -334,7 +327,7 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
     // MARK: Pairable
     
     /// Not used - present only to comply Pairable protocol
-    public var pairingDelegate: ConnectionPairingDelegate? = nil
+    public var pairingDelegate: DeviceLinkPairingDelegate? = nil
     
     public var pairingStatus: PairingStatus {
         didSet {
@@ -345,36 +338,36 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
     }
     
     public func requestPairing() {
-        if let connection = self.connectionForPairing() {
-            if connection.pairingStatus == .RequestedByPeer {
-                connection.acceptPairing()
+        if let link = self.linkForPairing() {
+            if link.pairingStatus == .RequestedByPeer {
+                link.acceptPairing()
             } else {
-                connection.requestPairing()
+                link.requestPairing()
             }
         }
     }
     
     public func acceptPairing() {
-        guard let connection = self.connectionForPairing() else {
-            Logger.device.error("acceptPairing: no connection found for pairing")
+        guard let link = self.linkForPairing() else {
+            Logger.device.error("acceptPairing: no link found for pairing")
             return
         }
-        guard connection.pairingStatus == .RequestedByPeer else {
-            Logger.device.error("acceptPairing: connection status is \(String(describing: connection.pairingStatus), privacy: .public), expected RequestedByPeer")
+        guard link.pairingStatus == .RequestedByPeer else {
+            Logger.device.error("acceptPairing: link status is \(String(describing: link.pairingStatus), privacy: .public), expected RequestedByPeer")
             return
         }
-        Logger.device.debug("acceptPairing: accepting pairing on connection")
-        connection.acceptPairing()
+        Logger.device.debug("acceptPairing: accepting pairing on link")
+        link.acceptPairing()
     }
     
     public func declinePairing() {
-        for connection in self.connections {
-            switch connection.pairingStatus {
+        for link in self.links {
+            switch link.pairingStatus {
             case .RequestedByPeer:
-                connection.declinePairing()
+                link.declinePairing()
                 break
             case .Paired, .Requested:
-                connection.unpair()
+                link.unpair()
                 break
             default:
                 break
@@ -383,13 +376,13 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
     }
     
     public func unpair() {
-        for connection in self.connections {
-            switch connection.pairingStatus {
+        for link in self.links {
+            switch link.pairingStatus {
             case .Paired, .Requested:
-                connection.unpair()
+                link.unpair()
                 break
             case .RequestedByPeer:
-                connection.declinePairing()
+                link.declinePairing()
                 break
             default:
                 break
@@ -400,19 +393,17 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
         self.updatePairingStatus(globalStatus: .Unpaired)
     }
     
-    /// Close all TCP connections (force reconnect)
+    /// Close every link (force reconnect)
     public func closeAllConnections() {
-        // Create a copy to avoid modifying array while iterating
-        // (connection close handlers remove from self.connections)
-        let connectionsCopy = self.connections
-        for connection in connectionsCopy {
-            connection.close()
+        // Iterate a copy: closing a link removes it from self.links
+        for link in self.links {
+            link.close()
         }
     }
     
     public func updatePairingStatus(globalStatus: PairingStatus) {
-        for connection in self.connections {
-            connection.updatePairingStatus(globalStatus: globalStatus)
+        for link in self.links {
+            link.updatePairingStatus(globalStatus: globalStatus)
         }
         self.config.isPaired = globalStatus == .Paired
         if !self.config.isPaired {
@@ -432,22 +423,20 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
     // MARK: Private
     
     private func updateReachabilityStatus() {
-        self.isReachable = self.connections.count != 0
+        self.isReachable = !self.links.isEmpty
     }
     
     private func updatePairingStatus() {
         var status: PairingStatus = .Unpaired
-        let hasConnections = self.connections.count > 0
         
-        if hasConnections {
-            for connection in self.connections {
-                if connection.pairingStatus == .Paired {
-                    status = connection.pairingStatus
+        if !self.links.isEmpty {
+            for link in self.links {
+                if link.pairingStatus == .Paired {
+                    status = .Paired
                     break
                 }
-                if (connection.pairingStatus == .Requested || connection.pairingStatus == .RequestedByPeer) &&
-                    status == .Unpaired {
-                    status = connection.pairingStatus
+                if (link.pairingStatus == .Requested || link.pairingStatus == .RequestedByPeer) && status == .Unpaired {
+                    status = link.pairingStatus
                 }
             }
         } else {
@@ -457,73 +446,72 @@ public class Device: ConnectionDelegate, ConnectionPairingDelegate, Pairable, Cu
         self.updatePairingStatus(globalStatus: status)
     }
     
-    /// Choose a connection most appropriate for pairing. Return `nil` if pairing seems inappropriate.
-    private func connectionForPairing() -> Connection? {
-        var bestConnection: Connection? = nil
+    /// Choose a link most appropriate for pairing. Return `nil` if pairing seems inappropriate.
+    private func linkForPairing() -> DeviceLink? {
+        var best: DeviceLink? = nil
         
-        for connection in self.connections {
-            switch connection.pairingStatus {
+        for link in self.links {
+            switch link.pairingStatus {
             case .Unpaired:
-                if bestConnection == nil {
-                    bestConnection = connection
+                if best == nil {
+                    best = link
                 }
             case .RequestedByPeer:
-                return connection
-            case .Requested:
-                return nil
-            case .Paired:
+                return link
+            case .Requested, .Paired:
                 return nil
             }
         }
         
-        return bestConnection
+        return best
     }
     
-    /// Choose a connection most appropriate for sending packets. Connection may be chosen
-    /// according its availability, reliability, speed, etc.
-    private func connectionForSending() -> Connection? {
-        for connection in self.connections {
-            if connection.pairingStatus == .Paired {
-                return connection
-            }
+    /// Preference order for packets without a payload. Packets with a payload go to the first paired
+    /// link that `transfersPayloadsEfficiently` (falling back to any paired link), so file transfers
+    /// can use the network link while a slower link carries everything else.
+    private static let linkPreference: [DeviceLinkKind] = [.lan, .bluetooth]
+    
+    /// Choose the link to send `packet` over: only paired links qualify.
+    private func link(forSending packet: DataPacket) -> DeviceLink? {
+        let paired = self.links
+            .filter { $0.pairingStatus == .Paired }
+            .sorted { (Self.linkPreference.firstIndex(of: $0.kind) ?? .max) < (Self.linkPreference.firstIndex(of: $1.kind) ?? .max) }
+        if packet.hasPayload(), let fast = paired.first(where: { $0.transfersPayloadsEfficiently }) {
+            return fast
         }
-        return nil
+        return paired.first
     }
     
     /// Pass received data packet to the handlers, registered with methods such as
     /// `addDataPacketHandler(_:)` or `addDataPacketHandlers(_:)`
-    private func handle(packet: DataPacket, onConnection connection: Connection) {
+    private func handle(packet: DataPacket, onLink link: DeviceLink) {
         for handler in self.packetHandlers {
-            let handled = handler.handleDataPacket(packet, fromDevice: self, onConnection: connection)
-            if handled {
+            if handler.handleDataPacket(packet, fromDevice: self, onLink: link) {
                 return
             }
         }
     }
     
-    /// Try sending packets from pendingPackets list, send as many as possible until no connection accepts any.
+    /// Try sending packets from pendingPackets list, send as many as possible until no link accepts any.
     private func sendPendingPackets() {
         while let pendingPacket = self.pendingPackets.popLast() {
-            guard let connection = self.connectionForSending() else {
+            guard let link = self.link(forSending: pendingPacket.packet) else {
                 self.pendingPackets.append(pendingPacket)
                 break
             }
-            let accepted = connection.send(pendingPacket.packet, whenCompleted: pendingPacket.completionHandler)
-            if !accepted {
+            if !link.send(pendingPacket.packet, whenCompleted: pendingPacket.completionHandler) {
                 self.pendingPackets.append(pendingPacket)
                 break
             }
         }
     }
     
-    /// Take unsent packets from a closed connection, put them into pendingPackets list and try resend them if possible.
-    private func reclaimUnsentPackets(from connection: Connection) {
-        assert(connection.state == .Closed, "Connection needs to be closed in order to reclaim its packets: \(connection)")
+    /// Take unsent packets from a closed link, put them into pendingPackets list and try resend them if possible.
+    private func reclaimUnsentPackets(from link: DeviceLink) {
+        assert(link.state == .Closed, "Link needs to be closed in order to reclaim its packets: \(link)")
         
-        let unsentPackets = connection.reclaimUnsentPackets()
-        for unsentPacket in unsentPackets {
-            let pendingPacket = PendingDataPacket(packet: unsentPacket.dataPacket, completionHandler: unsentPacket.completionHandler)
-            self.pendingPackets.append(pendingPacket)
+        for unsentPacket in link.reclaimUnsentPackets() {
+            self.pendingPackets.append(PendingDataPacket(packet: unsentPacket.dataPacket, completionHandler: unsentPacket.completionHandler))
         }
         
         self.sendPendingPackets()

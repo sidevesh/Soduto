@@ -47,7 +47,7 @@ public class SftpService: NSObject, Service, NSWindowDelegate {
     public let incomingCapabilities = Set<Service.Capability>([ DataPacket.sftpPacketType ])
     public let outgoingCapabilities = Set<Service.Capability>([ DataPacket.sftpRequestPacketType ])
     
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         guard dataPacket.isSftpPacket else { return false }
         handleSftpPacket(dataPacket, from: device)
         return true

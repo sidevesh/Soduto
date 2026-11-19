@@ -112,7 +112,7 @@ public class DeviceManager: ConnectionProviderDelegate, DeviceDelegate, DeviceDa
         do {
             let deviceId = try connection.identity!.getDeviceId() as Device.Id
             if let device = self.devices[deviceId] {
-                device.addConnection(connection)
+                device.addLink(connection)
             }
             else if let device = self.recentDevices.removeValue(forKey: deviceId)?.device {
                 self.readdDevice(device, connection: connection)
@@ -226,7 +226,7 @@ public class DeviceManager: ConnectionProviderDelegate, DeviceDelegate, DeviceDa
     // MARK: Private methods
     
     private func addNewDevice(withId id: Device.Id, connection: Connection) throws {
-        let device = try Device(connection: connection, config: self.config.deviceConfig(for: id))
+        let device = try Device(link: connection, config: self.config.deviceConfig(for: id))
         device.delegate = self
         
         let services: [DeviceDataPacketHandler] = self.serviceManager.services(supportingIncomingCapabilities: device.outgoingCapabilities)
@@ -250,7 +250,7 @@ public class DeviceManager: ConnectionProviderDelegate, DeviceDelegate, DeviceDa
     }
     
     private func readdDevice(_ device: Device, connection: Connection) {
-        device.addConnection(connection)
+        device.addLink(connection)
         device.delegate = self
         self.devices[device.id] = device
         self.device(device, didChangeReachabilityStatus: device.isReachable)

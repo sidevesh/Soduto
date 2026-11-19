@@ -27,18 +27,18 @@ import UserNotifications
 ///
 /// Transfer completion handling:
 /// - Download completion is delivered via `DownloadTaskDelegate`
-/// - Upload completion is delivered via `ConnectionDelegate`
+/// - Upload completion is delivered via `DeviceLinkDelegate`
 ///
 /// This reflects the architectural distinction between: incoming, service-owned downloads and outgoing, connection-owned uploads
 /// Note:
-/// `ShareService` is not the primary `ConnectionDelegate`
+/// `ShareService` is not the primary `DeviceLinkDelegate`
 /// Upload completion events are forwarded by `Device`, which owns the active connection lifecycle
-public class ShareService: NSObject, Service, DownloadTaskDelegate, ConnectionDelegate, UserNotificationActionHandler, NSDraggingDestination {
+public class ShareService: NSObject, Service, DownloadTaskDelegate, DeviceLinkDelegate, UserNotificationActionHandler, NSDraggingDestination {
     
     // MARK: Types
     
     public enum ExtensionShareResult {
-        case fileUploadQueued    // file with payload, tracked via ConnectionDelegate
+        case fileUploadQueued    // file with payload, tracked via DeviceLinkDelegate
         case sentWithoutPayload  // URL shared, completes immediately
         case skipped             // unshareable (directory, unreadable, etc.)
     }
@@ -192,7 +192,7 @@ public class ShareService: NSObject, Service, DownloadTaskDelegate, ConnectionDe
     
     // MARK: Service methods
     
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         // Handle `kdeconnect.share.request.update` packet
         // Only create a batch if `kdeconnect.share.request` packets haven't already done so
         if dataPacket.isShareUpdatePacket {
@@ -338,41 +338,41 @@ public class ShareService: NSObject, Service, DownloadTaskDelegate, ConnectionDe
     }
     
     
-    // MARK: ConnectionDelegate
+    // MARK: DeviceLinkDelegate
     
     /// ShareService receives upload completion events indirectly
-    /// The active `ConnectionDelegate` is `Device`, which forwards selected events to services that opt-in
+    /// The active `DeviceLinkDelegate` is `Device`, which forwards selected events to services that opt-in
     
-    /// ShareService does not react to connection state changes
-    public func connection(_ connection: Connection, didSwitchToState: Connection.State) {
+    /// ShareService does not react to link state changes
+    public func link(_ link: DeviceLink, didSwitchToState: DeviceLinkState) {
         // Not needed by ShareService
     }
     
     /// Incoming packets are routed to services via the `Service` API, so this callback is intentionally ignored
-    public func connection(_ connection: Connection, didReadPacket: DataPacket) {
+    public func link(_ link: DeviceLink, didReadPacket: DataPacket) {
         // ShareService already handles packets via Service APIs
     }
     
     /// Upload capacity changes are not handled at the service level
-    public func connectionCapacityChanged(_ connection: Connection) {
+    public func linkCapacityChanged(_ link: DeviceLink) {
         // Not relevant for ShareService
     }
     
-    /// Called by `Connection` when an outgoing packet (and its payload, if any) has finished sending
+    /// Called by the link (through `Device`) when an outgoing packet (and its payload, if any) has finished sending
     ///
     /// This method is used to detect completion of file uploads initiated by `ShareService`
     ///
     /// Important:
-    /// - Upload completion is reported via `ConnectionDelegate`, not `UploadTaskDelegate`
+    /// - Upload completion is reported via `DeviceLinkDelegate`, not `UploadTaskDelegate`
     /// - Only packets with payloads are considered uploads
     /// - Device identity is resolved via `uploadPacketDeviceIds` (stored at send time) rather than
-    ///   `connection.identity`, which can be nil in edge cases and would silently break batch tracking
-    public func connection(_ connection: Connection, didSendPacket packet: DataPacket, uploadedPayload: Bool) {
+    ///   `link.identity`, which can be nil in edge cases and would silently break batch tracking
+    public func link(_ link: DeviceLink, didSendPacket packet: DataPacket, uploadedPayload: Bool) {
         guard packet.hasPayload(), packet.type == DataPacket.sharePacketType else { return }
         
-        // Resolve device ID from the pre-stored mapping, else fall back to connection identity
-        let deviceId = uploadPacketDeviceIds.removeValue(forKey: packet.id) ?? (try? connection.identity?.getDeviceId())
-        let deviceName = deviceId.flatMap { self.devices[$0]?.name } ?? (try? connection.identity?.getDeviceName()) ?? "Unknown Device"
+        // Resolve device ID from the pre-stored mapping, else fall back to the link's identity
+        let deviceId = uploadPacketDeviceIds.removeValue(forKey: packet.id) ?? (try? link.identity?.getDeviceId())
+        let deviceName = deviceId.flatMap { self.devices[$0]?.name } ?? (try? link.identity?.getDeviceName()) ?? "Unknown Device"
         
         // Update HUD row for transfer completion status
         let fileName = (try? packet.getFilename()) ?? "file"
@@ -406,7 +406,7 @@ public class ShareService: NSObject, Service, DownloadTaskDelegate, ConnectionDe
         }
     }
     
-    public func connection(_ connection: Connection, uploadPayloadProgress bytesSent: Int64, totalBytes: Int64?, forPacket packet: DataPacket) {
+    public func link(_ link: DeviceLink, uploadPayloadProgress bytesSent: Int64, totalBytes: Int64?, forPacket packet: DataPacket) {
         guard packet.type == DataPacket.sharePacketType else { return }
         // Update HUD row with bytes sent so far
         TransferProgressHUD.updateProgress(id: "\(self.id).upload.\(packet.id)", bytesTransferred: bytesSent)

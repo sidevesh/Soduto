@@ -86,7 +86,7 @@ public class SystemVolumeService: OutgoingService, ObservableObject {
         outgoingEnabled ? [DataPacket.systemVolumePacketType] : []
     }
     
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         do {
             switch dataPacket.type {
             case DataPacket.systemVolumeRequestPacketType:

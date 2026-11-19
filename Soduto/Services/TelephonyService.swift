@@ -72,7 +72,7 @@ public class TelephonyService: Service, UserNotificationActionHandler {
     
     // MARK: Service methods
     
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         guard dataPacket.isTelephonyPacket else { return false }
         
         #if DEBUG

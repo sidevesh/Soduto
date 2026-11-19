@@ -91,7 +91,7 @@ public class PresenterService: IncomingService {
     
     // MARK: Service Protocol
     
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         guard dataPacket.isPresenterPacket else { return false }
         guard incomingEnabled else { return true }
         

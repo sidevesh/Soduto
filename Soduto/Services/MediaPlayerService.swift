@@ -210,7 +210,7 @@ public class MediaPlayerService: BidirectionalService, DownloadTaskDelegate, Obs
 // MARK: - Service Protocol
 
 extension MediaPlayerService {
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         if dataPacket.isMprisRequestPacket {
             // Phone sending commands for the Mac player (outgoing/exposer side)
             guard outgoingEnabled else { return true }

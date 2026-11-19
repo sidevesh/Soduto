@@ -46,7 +46,7 @@ public class ConnectivityReportService: Service, ObservableObject {
     public let incomingCapabilities = Set<Service.Capability>([ DataPacket.connectivityReportPacketType ])
     public let outgoingCapabilities = Set<Service.Capability>([ DataPacket.connectivityReportRequestPacketType ])
     
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         guard dataPacket.isConnectivityReportPacket else { return false }
         
         do {

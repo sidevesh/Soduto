@@ -43,7 +43,7 @@ public class FindMyService: NSObject, BidirectionalService {
 
     // MARK: Service methods
 
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         guard dataPacket.type == DataPacket.findMyRequestPacketType else { return false }
         guard incomingEnabled else { return true }
         if !isRinging {

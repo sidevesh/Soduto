@@ -107,7 +107,7 @@ public class RunCommandService: BidirectionalService, RunCommandsWindowControlle
     
     // MARK: Service
     
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         do {
             switch dataPacket.type {
             case DataPacket.runCommandPacketType:

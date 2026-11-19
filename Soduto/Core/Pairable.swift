@@ -16,19 +16,20 @@ public enum PairingStatus: Int {
 }
 
 public struct PairingRequest {
-    public let connection: Connection
+    /// The link the request arrived on
+    public let link: DeviceLink
 }
 
-/// Delegate protocol for Connection pairing events.
-public protocol ConnectionPairingDelegate: AnyObject {
-    func connection(_ connection: Connection, receivedPairingRequest request: PairingRequest)
-    func connection(_ connection: Connection, pairingFailed error: Error)
-    func connection(_ connection: Connection, pairingStatusChanged status: PairingStatus)
+/// Pairing events a link reports to its owner (the `Device`).
+public protocol DeviceLinkPairingDelegate: AnyObject {
+    func link(_ link: DeviceLink, receivedPairingRequest request: PairingRequest)
+    func link(_ link: DeviceLink, pairingFailed error: Error)
+    func link(_ link: DeviceLink, pairingStatusChanged status: PairingStatus)
 }
 
 public protocol Pairable {
     
-    var pairingDelegate: ConnectionPairingDelegate? { get set }
+    var pairingDelegate: DeviceLinkPairingDelegate? { get set }
     var pairingStatus: PairingStatus { get }
     
     func requestPairing()

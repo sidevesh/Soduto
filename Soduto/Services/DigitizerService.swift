@@ -91,7 +91,7 @@ public class DigitizerService: IncomingService {
     ])
     public let outgoingCapabilities = Set<Service.Capability>([])
     
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         guard incomingEnabled else { return true }
         
         if !hasCheckedAccessibility {

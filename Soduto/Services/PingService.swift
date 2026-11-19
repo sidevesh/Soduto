@@ -73,7 +73,7 @@ public class PingService: Service {
     
     // MARK: Service methods
     
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         guard dataPacket.isPingPacket else { return false }
         
         self.showNotification(for: dataPacket, from: device)

@@ -56,7 +56,7 @@ public class ClipboardService: BidirectionalService {
         outgoingEnabled ? [DataPacket.clipboardPacketType, DataPacket.clipboardConnectPacketType] : []
     }
     
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         switch dataPacket.type {
         case DataPacket.clipboardPacketType:
             guard incomingEnabled else { return true }

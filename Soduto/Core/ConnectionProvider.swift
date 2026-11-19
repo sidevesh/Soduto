@@ -23,7 +23,7 @@ public protocol ConnectionProviderDelegate: AnyObject {
     func connectionProvider(_ provider: ConnectionProvider, probeConnectionsFor deviceId: String)
 }
 
-public class ConnectionProvider: NSObject, ConnectionDelegate {
+public class ConnectionProvider: NSObject, DeviceLinkDelegate {
     
     static public let udpPort: UInt16 = 1716
     static public let minTcpPort: UInt16 = 1716
@@ -259,9 +259,10 @@ public class ConnectionProvider: NSObject, ConnectionDelegate {
     }
     
     
-    // MARK: ConnectionDelegate
+    // MARK: DeviceLinkDelegate (only for connections still being set up; the Device takes over once they're open)
     
-    public func connection(_ connection: Connection, didSwitchToState state: Connection.State) {
+    public func link(_ link: DeviceLink, didSwitchToState state: DeviceLinkState) {
+        guard let connection = link as? Connection else { return }
         Logger.network.debug("connection(<\(String(describing: connection), privacy: .public)> switchedToState:<\(String(describing: state), privacy: .public)>)")
         switch state {
         case .Closed:
@@ -280,7 +281,8 @@ public class ConnectionProvider: NSObject, ConnectionDelegate {
         }
     }
     
-    public func connection(_ connection: Connection, didSendPacket packet: DataPacket, uploadedPayload: Bool) {
+    public func link(_ link: DeviceLink, didSendPacket packet: DataPacket, uploadedPayload: Bool) {
+        guard let connection = link as? Connection else { return }
         // Type and id only: `send(_:)` already dumps the full packet when it is queued
         Logger.network.debug("connection(<\(connection, privacy: .public)> didSendPacket:<\(packet.type, privacy: .public), id: \(packet.id, privacy: .public)>)")
         
@@ -316,7 +318,8 @@ public class ConnectionProvider: NSObject, ConnectionDelegate {
         }
     }
     
-    public func connection(_ connection: Connection, didReadPacket packet: DataPacket) {
+    public func link(_ link: DeviceLink, didReadPacket packet: DataPacket) {
+        guard let connection = link as? Connection else { return }
         Logger.network.debug("connection(<\(connection, privacy: .public)> didReadPacket:<\(packet.type, privacy: .public)>)")
         
         // Only process identity packet during initialization
@@ -367,7 +370,7 @@ public class ConnectionProvider: NSObject, ConnectionDelegate {
         }
     }
     
-    public func connectionCapacityChanged(_ connection: Connection) { }
+    public func linkCapacityChanged(_ link: DeviceLink) { }
     
     
     // MARK: - UDP Implementation

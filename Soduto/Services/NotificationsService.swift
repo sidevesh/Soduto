@@ -387,7 +387,7 @@ public class NotificationsService: Service, DownloadTaskDelegate, UserNotificati
     
     // MARK: Service methods
     
-    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onConnection connection: Connection) -> Bool {
+    public func handleDataPacket(_ dataPacket: DataPacket, fromDevice device: Device, onLink link: DeviceLink) -> Bool {
         guard dataPacket.isNotificationPacket else { return false }
         
         // Log the raw packet (enable only when debugging, as logs may leak sensitive info)

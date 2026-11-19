@@ -22,28 +22,13 @@ public protocol ConnectionConfiguration: HostConfiguration {
     func knownDeviceConfigs() -> [DeviceConfiguration]
 }
 
-// MARK: - Connection Delegate
-
-/// Delegate protocol for Connection events.
-public protocol ConnectionDelegate: AnyObject {
-    func connection(_ connection: Connection, didSwitchToState state: Connection.State)
-    func connection(_ connection: Connection, didSendPacket packet: DataPacket, uploadedPayload: Bool)
-    func connection(_ connection: Connection, didReadPacket packet: DataPacket)
-    func connectionCapacityChanged(_ connection: Connection)
-    func connection(_ connection: Connection, uploadPayloadProgress bytesSent: Int64, totalBytes: Int64?, forPacket packet: DataPacket)
-}
-
-public extension ConnectionDelegate {
-    func connection(_ connection: Connection, uploadPayloadProgress bytesSent: Int64, totalBytes: Int64?, forPacket packet: DataPacket) {}
-}
-
 // MARK: - Connection
 
 /// Manages a TCP connection with TLS for KDE Connect protocol communication.
 ///
 /// This class manages a TCP connection with TLS using SwiftNIO. It supports
 /// STARTTLS with role reversal as required by KDE Connect protocol.
-public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
+public class Connection: NSObject, DeviceLink, PairingHandlerDelegate, UploadTaskDelegate {
     
     // MARK: Types
     
@@ -55,13 +40,8 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
         case serializationFailed
     }
     
-    public enum State {
-        case Initializing
-        case Open
-        case Closed
-    }
-    
-    public typealias SendingCompletionHandler = ((_ packetSent: Bool, _ payloadSent: Bool) -> Void)
+    public typealias State = DeviceLinkState
+    public typealias SendingCompletionHandler = PacketSendingCompletionHandler
     
     public struct DataPacketSendingInfo {
         let dataPacket: DataPacket
@@ -82,8 +62,13 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
     
     // MARK: Properties
     
-    public weak var delegate: ConnectionDelegate?
-    public weak var pairingDelegate: ConnectionPairingDelegate?
+    public weak var delegate: DeviceLinkDelegate?
+    public weak var pairingDelegate: DeviceLinkPairingDelegate?
+    
+    // MARK: DeviceLink
+    
+    public var kind: DeviceLinkKind { .lan }
+    public var transfersPayloadsEfficiently: Bool { true }
     
     public private(set) var state: State {
         didSet {
@@ -91,7 +76,7 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
                 // Notify delegate on main queue
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
-                    self.delegate?.connection(self, didSwitchToState: self.state)
+                    self.delegate?.link(self, didSwitchToState: self.state)
                 }
             }
             
@@ -243,8 +228,8 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
         self.pairingHandler!.timeoutHandler = { [weak self] in
             guard let self = self else { return }
             DispatchQueue.main.async {
-                self.pairingDelegate?.connection(self, pairingFailed: DefaultPairingHandler.Error.timedOut)
-                self.pairingDelegate?.connection(self, pairingStatusChanged: .Unpaired)
+                self.pairingDelegate?.link(self, pairingFailed: DefaultPairingHandler.Error.timedOut)
+                self.pairingDelegate?.link(self, pairingStatusChanged: .Unpaired)
             }
         }
         
@@ -257,7 +242,7 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
         // Note: pairingHandler's pairingDelegate and impersonateAs are NOT set because
         // Connection handles incoming pairing packets directly in handlePairingPacket(),
         // while outgoing pairing actions (requestPairing, acceptPairing, etc.) delegate
-        // to pairingHandler. ConnectionPairingDelegate receives pairing events.
+        // to pairingHandler. DeviceLinkPairingDelegate receives pairing events.
     }
     
     public func secureServer() {
@@ -457,7 +442,7 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
         self.packetsSendingLock.unlock()
         
         guard let packetInfo = packetInfo else { return }
-        self.delegate?.connection(self, uploadPayloadProgress: bytesSent, totalBytes: totalBytes, forPacket: packetInfo.dataPacket)
+        self.delegate?.link(self, uploadPayloadProgress: bytesSent, totalBytes: totalBytes, forPacket: packetInfo.dataPacket)
     }
     
     
@@ -484,7 +469,7 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
         if newStatus != previousStatus {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                self.pairingDelegate?.connection(self, pairingStatusChanged: newStatus)
+                self.pairingDelegate?.link(self, pairingStatusChanged: newStatus)
             }
         }
     }
@@ -503,7 +488,7 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
             self.rememberHwAddress()
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                self.pairingDelegate?.connection(self, pairingStatusChanged: .Paired)
+                self.pairingDelegate?.link(self, pairingStatusChanged: .Paired)
             }
         }
     }
@@ -519,7 +504,7 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
         // Notify delegate about pairing status change
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            self.pairingDelegate?.connection(self, pairingStatusChanged: .Unpaired)
+            self.pairingDelegate?.link(self, pairingStatusChanged: .Unpaired)
         }
     }
     
@@ -534,7 +519,7 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
         // Notify delegate about pairing status change
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            self.pairingDelegate?.connection(self, pairingStatusChanged: .Unpaired)
+            self.pairingDelegate?.link(self, pairingStatusChanged: .Unpaired)
         }
     }
     
@@ -820,7 +805,7 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
         if self.state == .Initializing {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                self.delegate?.connection(self, didReadPacket: packet)
+                self.delegate?.link(self, didReadPacket: packet)
             }
             return
         }
@@ -850,7 +835,7 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
         // Pass to delegate for external handling
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            self.delegate?.connection(self, didReadPacket: packet)
+            self.delegate?.link(self, didReadPacket: packet)
         }
     }
     
@@ -879,10 +864,10 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
                     
                     // Peer initiates pairing - notify delegate with PairingRequest
                     pairingHandler.setStatus(.RequestedByPeer)
-                    let request = PairingRequest(connection: self)
+                    let request = PairingRequest(link: self)
                     DispatchQueue.main.async { [weak self] in
                         guard let self = self else { return }
-                        self.pairingDelegate?.connection(self, receivedPairingRequest: request)
+                        self.pairingDelegate?.link(self, receivedPairingRequest: request)
                     }
                     
                 case .Requested:
@@ -900,7 +885,7 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
                         self.rememberHwAddress()
                         DispatchQueue.main.async { [weak self] in
                             guard let self = self else { return }
-                            self.pairingDelegate?.connection(self, pairingStatusChanged: .Paired)
+                            self.pairingDelegate?.link(self, pairingStatusChanged: .Paired)
                         }
                     }
                     
@@ -917,19 +902,19 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
                 if pairingHandler.pairingStatus == .Requested {
                     DispatchQueue.main.async { [weak self] in
                         guard let self = self else { return }
-                        self.pairingDelegate?.connection(self, pairingFailed: DefaultPairingHandler.Error.declinedByPeer)
+                        self.pairingDelegate?.link(self, pairingFailed: DefaultPairingHandler.Error.declinedByPeer)
                     }
                 }
                 pairingHandler.setStatus(.Unpaired)
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
-                    self.pairingDelegate?.connection(self, pairingStatusChanged: .Unpaired)
+                    self.pairingDelegate?.link(self, pairingStatusChanged: .Unpaired)
                 }
             }
         } catch {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                self.pairingDelegate?.connection(self, pairingFailed: error)
+                self.pairingDelegate?.link(self, pairingFailed: error)
             }
         }
     }
@@ -1109,7 +1094,7 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
         DispatchQueue.main.async { [weak self] in
             completionHandler?(packetSent, payloadSent)
             if packetSent, let self = self {
-                self.delegate?.connection(self, didSendPacket: packet, uploadedPayload: payloadSent)
+                self.delegate?.link(self, didSendPacket: packet, uploadedPayload: payloadSent)
             }
         }
     }
@@ -1134,7 +1119,7 @@ public class Connection: NSObject, PairingHandlerDelegate, UploadTaskDelegate {
         let portObserver = NotificationCenter.default.addObserver(forName: PayloadPortRegistry.portReleaseNotification, object: nil, queue: nil) { [weak self] _ in
             if let self = self {
                 DispatchQueue.main.async {
-                    self.delegate?.connectionCapacityChanged(self)
+                    self.delegate?.linkCapacityChanged(self)
                 }
             }
         }
