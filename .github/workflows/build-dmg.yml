@@ -1,9 +1,14 @@
 # Builds an installable Soduto.dmg on a GitHub-hosted Mac.
 #
 # Signing: Xcode signs ad hoc ("Sign to Run Locally"). When the repository has the secrets
-# SODUTO_SIGNING_P12 (base64 of a .p12 holding a self-signed code-signing certificate) and
-# SODUTO_SIGNING_PASSWORD (scripts/create-signing-certificate.sh creates both), the finished app is
-# re-signed with that certificate. Its code identity then stays the same from build to build, so macOS
+# SODUTO_SIGNING_P12 (base64 of a .p12 holding a code-signing certificate and its key) and
+# SODUTO_SIGNING_PASSWORD, the finished app is re-signed with that certificate.
+#
+# Use your Apple Development certificate (scripts/store-signing-certificate.sh) and also set
+# SODUTO_TEAM_ID to its Team ID: the app is then built for that team, so the App Group that Soduto Share
+# uses to talk to the app carries the Team ID prefix, which macOS only grants to apps signed by that
+# team. A free Apple ID's Personal Team works. A self-signed certificate
+# (scripts/create-signing-certificate.sh) carries no Team ID, so Soduto Share can't reach the app. Its code identity then stays the same from build to build, so macOS
 # keeps the Accessibility grant and keychain access across updates. Either way the build is not
 # notarized: after installing, clear the quarantine flag once (see the README) or use
 # System Settings › Privacy & Security › Open Anyway.
@@ -94,11 +99,14 @@ jobs:
           echo "artifact_name=Soduto-${SAFE_REF}-${VERSION}-${{ matrix.suffix }}" >> "$GITHUB_OUTPUT"
 
       - name: Write local build configuration
+        env:
+          TEAM_ID: ${{ secrets.SODUTO_TEAM_ID }}
         run: |
           # Config.xcconfig includes the untracked LocalConfig.xcconfig, which supplies BUNDLE_ID and
-          # DEVELOPMENT_TEAM. CI has no team: the app is signed ad hoc below.
+          # DEVELOPMENT_TEAM. With SODUTO_TEAM_ID the build is for that team (App Group prefix); either way
+          # Xcode signs ad hoc here and the app is re-signed below.
           cat > LocalConfig.xcconfig <<EOF
-          DEVELOPMENT_TEAM =
+          DEVELOPMENT_TEAM = $TEAM_ID
           BUNDLE_ID = $BUNDLE_ID
           EOF
           cat LocalConfig.xcconfig
@@ -112,7 +120,9 @@ jobs:
           CODE_SIGN_STYLE = Manual
           CODE_SIGN_IDENTITY = -
           CODE_SIGN_IDENTITY[sdk=macosx*] = -
-          DEVELOPMENT_TEAM =
+          DEVELOPMENT_TEAM = $TEAM_ID
+          // Ad-hoc signing doesn't derive the team prefix the App Group and Info.plist use; set it
+          TeamIdentifierPrefix = ${TEAM_ID:+$TEAM_ID.}
           PROVISIONING_PROFILE_SPECIFIER =
           ENABLE_HARDENED_RUNTIME = NO
           // Don't add the debugging-only get-task-allow entitlement to a distributed build
@@ -196,12 +206,24 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           
-          # Trust the self-signed certificate for code signing so it shows up as a valid identity. If that
-          # isn't possible, codesign still signs with it when given its SHA-1 hash (below).
           /usr/bin/openssl pkcs12 -in "$RUNNER_TEMP/signing.p12" -passin env:SIGNING_PASSWORD -nokeys -clcerts -out "$RUNNER_TEMP/signing-cert.pem"
-          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/signing-cert.pem" \
-            || sudo security add-trusted-cert -d -r trustAsRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/signing-cert.pem" \
-            || echo "::warning::Couldn't mark the signing certificate as trusted; signing by hash"
+          SUBJECT=$(/usr/bin/openssl x509 -in "$RUNNER_TEMP/signing-cert.pem" -noout -subject)
+          ISSUER=$(/usr/bin/openssl x509 -in "$RUNNER_TEMP/signing-cert.pem" -noout -issuer)
+          echo "Certificate: $SUBJECT"
+          if [ "${SUBJECT#subject=}" = "${ISSUER#issuer=}" ]; then
+            # Self-signed: trust it for code signing so it shows up as a valid identity. If that isn't
+            # possible, codesign still signs with it when given its SHA-1 hash (below).
+            sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/signing-cert.pem" \
+              || sudo security add-trusted-cert -d -r trustAsRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/signing-cert.pem" \
+              || echo "::warning::Couldn't mark the signing certificate as trusted; signing by hash"
+            echo "::warning::Self-signed certificate: it carries no Team ID, so Soduto Share can't reach the app (see scripts/store-signing-certificate.sh)"
+          else
+            # Apple-issued: make sure Apple's intermediates are there so codesign can build the chain
+            for CA in AppleWWDRCAG3 AppleWWDRCAG6 DeveloperIDG2CA; do
+              curl -fsSL "https://www.apple.com/certificateauthority/$CA.cer" -o "$RUNNER_TEMP/$CA.cer" \
+                && security import "$RUNNER_TEMP/$CA.cer" -k "$KEYCHAIN" > /dev/null 2>&1 || true
+            done
+          fi
           rm -f "$RUNNER_TEMP/signing.p12"
           
           IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | awk '/[0-9A-F]{40}/ { print $2; exit }')
@@ -222,6 +244,7 @@ jobs:
         env:
           IDENTITY: ${{ steps.signing.outputs.identity }}
           KEYCHAIN: ${{ steps.signing.outputs.keychain }}
+          TEAM_ID: ${{ secrets.SODUTO_TEAM_ID }}
         run: |
           APP="$DERIVED_DATA/Build/Products/Release/Soduto.app"
           # Re-sign every nested component (frameworks, XPC services, Soduto Files, the Share extension,
@@ -230,6 +253,15 @@ jobs:
             --preserve-metadata=entitlements,flags --timestamp=none "$APP"
           echo "Designated requirement (what TCC and the keychain match against):"
           codesign --display --requirements - "$APP"
+          
+          # Soduto Share reaches the app through an App Group named after the Team ID; check they agree
+          SIGNED_TEAM=$(codesign --display --verbose=2 "$APP" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+          echo "Team ID in the signature: ${SIGNED_TEAM:-none}"
+          if [ -n "$TEAM_ID" ] && [ "$SIGNED_TEAM" != "$TEAM_ID" ]; then
+            echo "::error::SODUTO_TEAM_ID is $TEAM_ID but the certificate's team is ${SIGNED_TEAM:-none}"
+            exit 1
+          fi
+          codesign --display --entitlements - --xml "$APP" 2>/dev/null | grep -A2 application-groups || true
       
       - name: Inspect the app
         run: |
