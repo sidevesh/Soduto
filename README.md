@@ -207,7 +207,7 @@ The [`Build DMG`](.github/workflows/build-dmg.yml) workflow builds an installabl
 - **Keep permissions across builds (recommended):** run `scripts/create-signing-certificate.sh <owner>/<repo>` once. It creates a self-signed code-signing certificate and stores it as the `SODUTO_SIGNING_P12` / `SODUTO_SIGNING_PASSWORD` repository secrets (with the GitHub CLI; otherwise it prints them to add under Settings → Secrets and variables → Actions). The workflow then re-signs every build with it, so macOS keeps Soduto's **Accessibility** permission and keychain access when you install a newer build. Grant Accessibility once after the first signed build (remove the old Soduto entry first).
 - Without those secrets each build is signed ad hoc and macOS treats it as a different app: after installing a new build, re-grant Accessibility by removing Soduto from the list and adding it again (or `tccutil reset Accessibility com.soduto.Soduto`), and expect a keychain prompt for Soduto's pairing identity (choose **Always Allow**).
 - The default bundle identifier `com.soduto.Soduto` replaces an existing Soduto install and keeps its pairings; a different one can be entered when running the workflow manually.
-- Without a Team ID the app group has no team prefix, so the Share extension can't hand files to the main app in CI builds; drag-and-drop to the menu bar icon and `Send Files` still work.
+- Soduto Share doesn't need an App Group (which would need a Team ID): it hands files to Soduto the way Open With does, so sharing works from any folder in self-signed builds too.
 - Automatic Sparkle update checks are turned off in CI builds, because the feed in `Info.plist` belongs to the upstream fork and would offer to replace this build with its release.
 
 ---

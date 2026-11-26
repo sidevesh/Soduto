@@ -32,6 +32,17 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>Soduto.StatusBarApplication</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Soduto Share request</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>soduto-share</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Soduto connects to your phone over Bluetooth when “Connect over Bluetooth” is on in Settings.</string>
 	<key>NSMicrophoneUsageDescription</key>

@@ -205,6 +205,15 @@ public class UserNotificationManager: NSObject, UNUserNotificationCenterDelegate
         )
         registeredCategories.insert(shareCategory)
         
+        // Files being sent or received: Cancel stops them
+        let cancelTransferAction = UNNotificationAction(identifier: "cancelTransfer", title: "Cancel", options: [.destructive])
+        registeredCategories.insert(UNNotificationCategory(
+            identifier: "TransferInProgress",
+            actions: [cancelTransferAction],
+            intentIdentifiers: [],
+            options: []
+        ))
+        
         un.setNotificationCategories(registeredCategories)
     }
     

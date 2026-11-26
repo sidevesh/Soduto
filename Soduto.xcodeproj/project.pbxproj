@@ -100,7 +100,6 @@
 		7788C9D21F9E324D8B26EC9C /* CallViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F7A143D4E3FDFB53BD0264A /* CallViews.swift */; };
 		31AB4B5C2F59761400FE3DD4 /* OTPExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31AB4B5B2F59761400FE3DD4 /* OTPExtractor.swift */; };
 		31AB4B5E2F5BA6DA00FE3DD4 /* StatusBarImageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31AB4B5D2F5BA6D900FE3DD4 /* StatusBarImageProvider.swift */; };
-		31AB4B642F5C4BA700FE3DD4 /* TransferProgressHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31AB4B632F5C4BA700FE3DD4 /* TransferProgressHUD.swift */; };
 		31AF2B0F2F6C2F03002C7D38 /* PresenterService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31AF2B0E2F6C2F03002C7D38 /* PresenterService.swift */; };
 		31AF2B112F6C9712002C7D38 /* SystemVolumeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31AF2B102F6C9712002C7D38 /* SystemVolumeService.swift */; };
 		31D69A872FA797690086225A /* SMSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31D69A862FA797690086225A /* SMSService.swift */; };
@@ -346,7 +345,6 @@
 		3F7A143D4E3FDFB53BD0264A /* CallViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallViews.swift; sourceTree = "<group>"; };
 		31AB4B5B2F59761400FE3DD4 /* OTPExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OTPExtractor.swift; sourceTree = "<group>"; };
 		31AB4B5D2F5BA6D900FE3DD4 /* StatusBarImageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarImageProvider.swift; sourceTree = "<group>"; };
-		31AB4B632F5C4BA700FE3DD4 /* TransferProgressHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferProgressHUD.swift; sourceTree = "<group>"; };
 		31AF2B0E2F6C2F03002C7D38 /* PresenterService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenterService.swift; sourceTree = "<group>"; };
 		31AF2B102F6C9712002C7D38 /* SystemVolumeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemVolumeService.swift; sourceTree = "<group>"; };
 		31D69A862FA797690086225A /* SMSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMSService.swift; sourceTree = "<group>"; };
@@ -646,7 +644,6 @@
 				F754A39CE6B3C70CF8228342 /* SettingsView.swift */,
 				8492379E1DE1C87600D95BBA /* ServiceActionMenuItem.swift */,
 				31F8154E2FE55CB9008D30CF /* ShellEditorView.swift */,
-				31AB4B632F5C4BA700FE3DD4 /* TransferProgressHUD.swift */,
 				842B50561E4295D200969AA7 /* UnifiedTitlebarWindow.swift */,
 			);
 			path = Views;
@@ -1235,7 +1232,6 @@
 				31F8A6102F4EEC9D00CA5A61 /* MDNSAdvertisementService.swift in Sources */,
 				84FA45E61DDDE87F00EF3992 /* AppDelegate.swift in Sources */,
 				84651A741E59F9C900D17601 /* MenuView.swift in Sources */,
-				31AB4B642F5C4BA700FE3DD4 /* TransferProgressHUD.swift in Sources */,
 				84FA45ED1DDF525200EF3992 /* PingService.swift in Sources */,
 				31864DCF293C3CE100334902 /* SharedUserDefaults.swift in Sources */,
 				31D69A892FA7978E0086225A /* ContactsService.swift in Sources */,

@@ -15,12 +15,49 @@ import os
 class ShareExtensionController: NSViewController {
     
     /// Each entry is ["id": "<deviceId>", "name": "<displayName>", "type": "<deviceType>"].
-    /// Returns an empty list if the main app's heartbeat is stale (app not running or crashed).
-    var validDeviceEntries: [[String: String]] = {
-        let heartbeat = AppDefaultsStore.ShareExtension.appLastHeartbeat
-        guard Date().timeIntervalSince1970 - heartbeat < 60 else { return [] }
-        return AppDefaultsStore.ShareExtension.reachableDevices
-    }()
+    /// Empty when Soduto isn't running and couldn't be started, or no device is reachable.
+    lazy var validDeviceEntries: [[String: String]] = Self.loadDevices().map { ["id": $0.id, "name": $0.name, "type": $0.type] }
+
+    /// Soduto.app, which contains this extension (Soduto.app/Contents/PlugIns/Soduto Share.appex)
+    private static var hostAppURL: URL {
+        Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    private static func openConfiguration() -> NSWorkspace.OpenConfiguration {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.addsToRecentItems = false
+        return configuration
+    }
+
+    /// The devices Soduto published; asks it to publish, and starts it if it isn't running
+    private static func loadDevices() -> [AppDefaultsStore.ShareBridge.DeviceEntry] {
+        if let devices = AppDefaultsStore.ShareBridge.readDevices() {
+            return devices
+        }
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                             CFNotificationName(AppDefaultsStore.DarwinNotifications.shareRequestDevices as CFString), nil, nil, true)
+        if !waitForDevices(seconds: 0.5) {
+            Logger.sharing.info("Soduto isn't running; starting it")
+            NSWorkspace.shared.openApplication(at: hostAppURL, configuration: openConfiguration()) { _, error in
+                if let error {
+                    Logger.sharing.error("Couldn't start Soduto: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+            _ = waitForDevices(seconds: 4)
+        }
+        return AppDefaultsStore.ShareBridge.readDevices() ?? []
+    }
+
+    /// Lets the run loop run (so the launch completes) until devices appear or time runs out
+    private static func waitForDevices(seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if AppDefaultsStore.ShareBridge.readDevices() != nil { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return AppDefaultsStore.ShareBridge.readDevices() != nil
+    }
     
     lazy var viewModel = ShareViewModel(deviceCount: validDeviceEntries.count)
     weak var touchBarScrubber: NSScrubber?
@@ -43,9 +80,6 @@ class ShareExtensionController: NSViewController {
     }
     
     override func loadView() {
-        // Clear any stale transfer statuses from a previous session
-        AppDefaultsStore.ShareExtension.transferStatuses = nil
-        
         let rootView = ShareSheetView(viewModel: viewModel, deviceEntries: validDeviceEntries, onDeviceSelected: { [weak self] index in
             self?.shareToDevice(at: index)
         }, onDismiss: { [weak self] in
@@ -89,7 +123,7 @@ class ShareExtensionController: NSViewController {
                 self?.touchBarScrubber?.reloadData()
             }
         
-        // Register for reverse Darwin notifications from main app (transfer status updates)
+        // Soduto pings when transfer statuses change
         let statusNotificationName = AppDefaultsStore.DarwinNotifications.shareStatus as CFString
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(), { _, observer, _, _, _ in
             guard let observer = observer else { return }
@@ -109,7 +143,6 @@ class ShareExtensionController: NSViewController {
     deinit {
         self.view.window?.unbind(NSBindingName(rawValue: #keyPath(touchBar)))
         CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(), nil, nil)
-        AppDefaultsStore.ShareExtension.transferStatuses = nil
     }
     
     // MARK: - Share Logic
@@ -130,7 +163,7 @@ class ShareExtensionController: NSViewController {
         // Set transferring state (breathing ring appears)
         viewModel.deviceStatuses[index] = .transferring
         
-        if viewModel.cachedBookmarks != nil {
+        if viewModel.cachedURLs != nil {
             // Attachments already cached — hand off immediately
             handOffToMainApp(deviceIndex: index)
         } else {
@@ -153,7 +186,7 @@ class ShareExtensionController: NSViewController {
         
         let group = DispatchGroup()
         let lock = NSLock()
-        var collectedBookmarks: [Data] = []
+        var collectedURLs: [URL] = []
         var collectedTexts: [String] = []
         
         // macOS share sheet provides shared text via attributedContentText on NSExtensionItem.
@@ -179,11 +212,9 @@ class ShareExtensionController: NSViewController {
                         Logger.sharing.error("Failed to create URL from shared data")
                         return
                     }
-                    if let bookmark = Self.createBookmark(for: url) {
-                        lock.lock()
-                        collectedBookmarks.append(bookmark)
-                        lock.unlock()
-                    }
+                    lock.lock()
+                    collectedURLs.append(url)
+                    lock.unlock()
                 }
             } else if collectedTexts.isEmpty && attachment.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
                 // Safety net: in case an app vends text via NSItemProvider instead of attributedContentText
@@ -211,7 +242,7 @@ class ShareExtensionController: NSViewController {
             guard let self = self else { return }
             
             // Cache for reuse on subsequent device taps
-            self.viewModel.cachedBookmarks = collectedBookmarks
+            self.viewModel.cachedURLs = collectedURLs
             self.viewModel.cachedTexts = collectedTexts
             self.viewModel.isCollectingAttachments = false
             
@@ -221,38 +252,44 @@ class ShareExtensionController: NSViewController {
     
     // MARK: - Handoff to Main App
     
+    /// Sends the request (device, texts) to Soduto as a `soduto-share:` link, then opens the files with
+    /// Soduto, which gives it access to them
     private func handOffToMainApp(deviceIndex: Int) {
-        let selectedDevice = validDeviceEntries[deviceIndex]["id"] ?? ""
-        
-        // Clear any previous status for this device (important for retries)
-        var statuses = AppDefaultsStore.ShareExtension.transferStatuses ?? [:]
-        statuses.removeValue(forKey: selectedDevice)
-        AppDefaultsStore.ShareExtension.transferStatuses = statuses
-        
-        // Write device ID
-        AppDefaultsStore.ShareExtension.selectedDevice = selectedDevice
-        
-        // Write cached attachment data
-        let bookmarks = viewModel.cachedBookmarks ?? []
+        let deviceId = validDeviceEntries[deviceIndex]["id"] ?? ""
+        let urls = viewModel.cachedURLs ?? []
         let texts = viewModel.cachedTexts ?? []
+        let fileURLs = urls.filter(\.isFileURL)
+        // Web links are shared as text (the device opens them)
+        let allTexts = texts + urls.filter { !$0.isFileURL }.map(\.absoluteString)
         
-        if !bookmarks.isEmpty {
-            AppDefaultsStore.ShareExtension.fileBookmarkData = bookmarks
+        guard !fileURLs.isEmpty || !allTexts.isEmpty,
+              let requestURL = AppDefaultsStore.ShareBridge.url(for: .init(deviceId: deviceId, fileCount: fileURLs.count, texts: allTexts)) else {
+            viewModel.deviceStatuses[deviceIndex] = .failed
+            return
         }
-        if !texts.isEmpty {
-            AppDefaultsStore.ShareExtension.sharedTexts = texts
-        }
+        AppDefaultsStore.ShareBridge.clearStatus(forDevice: deviceId)
         
-        // Notify the main app only if there is data to share
-        if !bookmarks.isEmpty || !texts.isEmpty {
-            notifyMainApp()
+        let app = Self.hostAppURL
+        NSWorkspace.shared.open([requestURL], withApplicationAt: app, configuration: Self.openConfiguration()) { [weak self] _, error in
+            if let error {
+                Logger.sharing.error("Couldn't hand the request to Soduto: \(error.localizedDescription, privacy: .public)")
+                DispatchQueue.main.async { self?.viewModel.deviceStatuses[deviceIndex] = .failed }
+                return
+            }
+            guard !fileURLs.isEmpty else { return }
+            NSWorkspace.shared.open(fileURLs, withApplicationAt: app, configuration: Self.openConfiguration()) { _, error in
+                if let error {
+                    Logger.sharing.error("Couldn't hand the files to Soduto: \(error.localizedDescription, privacy: .public)")
+                    DispatchQueue.main.async { self?.viewModel.deviceStatuses[deviceIndex] = .failed }
+                }
+            }
         }
     }
     
     // MARK: - Status Updates from Main App
     
     func handleStatusUpdate() {
-        guard let statuses = AppDefaultsStore.ShareExtension.transferStatuses else { return }
+        let statuses = AppDefaultsStore.ShareBridge.readStatuses()
         for (index, entry) in validDeviceEntries.enumerated() {
             guard let deviceId = entry["id"], let status = statuses[deviceId] else { continue }
             switch status {
@@ -266,24 +303,4 @@ class ShareExtensionController: NSViewController {
         }
     }
     
-    // MARK: - Private Helpers
-    
-    private func notifyMainApp() {
-        let notificationName = CFNotificationName(AppDefaultsStore.DarwinNotifications.shareHandoff as CFString)
-        let notificationCenter = CFNotificationCenterGetDarwinNotifyCenter()
-        CFNotificationCenterPostNotification(notificationCenter, notificationName, nil, nil, false)
-    }
-    
-    private static func createBookmark(for url: URL) -> Data? {
-        do {
-            return try url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
-        } catch {
-            #if DEBUG
-                Logger.sharing.error("Failed to create bookmark for \(url, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            #else
-                Logger.sharing.error("Failed to create bookmark for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            #endif
-            return nil
-        }
-    }
 }
