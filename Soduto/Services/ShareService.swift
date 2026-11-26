@@ -592,9 +592,14 @@ public class ShareService: NSObject, Service, DownloadTaskDelegate, DeviceLinkDe
         beginUploadBatch(for: device, fileCount: fileCount, totalBytes: totalBytes, notifyExtensionOnComplete: true)
     }
     
-    /// Reports transfer status back to Soduto Share ("success" or "failed")
+    /// Reports transfer status back to the Share Extension via App Group UserDefaults + Darwin notification
     public static func reportExtensionTransferStatus(deviceId: String, status: String) {
-        AppDefaultsStore.ShareBridge.publish(status: status, forDevice: deviceId)
+        var statuses = AppDefaultsStore.ShareExtension.transferStatuses ?? [:]
+        statuses[deviceId] = status
+        AppDefaultsStore.ShareExtension.transferStatuses = statuses
+        
+        let name = CFNotificationName(AppDefaultsStore.DarwinNotifications.shareStatus as CFString)
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), name, nil, nil, false)
     }
     
     

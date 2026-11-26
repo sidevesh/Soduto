@@ -21,7 +21,7 @@ enum DeviceTransferStatus: Equatable {
 
 class ShareViewModel: ObservableObject {
     @Published var deviceStatuses: [DeviceTransferStatus]
-    @Published var cachedURLs: [URL]? = nil
+    @Published var cachedBookmarks: [Data]? = nil
     @Published var cachedTexts: [String]? = nil
     @Published var isCollectingAttachments: Bool = false
     

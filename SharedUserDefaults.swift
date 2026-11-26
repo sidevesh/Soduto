@@ -6,7 +6,7 @@
 //  Copyright © 2022 Soduto. All rights reserved.
 //
 
-import AppKit
+import Foundation
 
 enum AppDefaultsStore {
     // MARK: - Bundle Identity
@@ -27,119 +27,59 @@ enum AppDefaultsStore {
     // so that forks with different bundle IDs get their own isolated key space automatically.
     fileprivate static let base: String = mainBundleId.components(separatedBy: ".").dropLast().joined(separator: ".")
     
-    // MARK: - Darwin Notification Names (cross-process pings: main app ↔ Share Extension)
+    // MARK: - Suite Instances
+    
+    static let appGroupDefaults: UserDefaults? = {
+        guard let teamId = Bundle.main.object(forInfoDictionaryKey: "TeamIdentifierPrefix") as? String else {
+            return nil
+        }
+        return UserDefaults(suiteName: teamId + mainBundleId)
+    }()
+    
+    // MARK: - Darwin Notification Names (cross-process: main app ↔ Share Extension)
     
     enum DarwinNotifications {
-        /// Extension → app: publish the device list now
-        static let shareRequestDevices = mainBundleId + ".share.requestDevices"
-        /// App → extension: transfer statuses changed (see `ShareBridge.readStatuses`)
+        static let shareHandoff = mainBundleId + ".share.handoff"
         static let shareStatus  = mainBundleId + ".share.status"
     }
     
-    // MARK: - Share Extension Bridge
+    // MARK: - Share Extension Communication
     
-    /// How Soduto Share talks to the app without an App Group (which needs an Apple Developer Team ID,
-    /// so self-signed builds can't use one):
-    /// - the app keeps the reachable devices on a named pasteboard, and transfer statuses on another;
-    ///   Darwin notifications say when to look
-    /// - the extension sends its request (target device, shared text) as a `soduto-share:` link opened in
-    ///   the app, then opens the shared files with the app through Launch Services, which gives the app
-    ///   access to exactly those files, wherever they are
-    enum ShareBridge {
-        static let urlScheme = "soduto-share"
+    enum ShareExtension {
+        fileprivate static let base = "\(AppDefaultsStore.base).share"
         
-        struct DeviceEntry: Codable, Hashable {
-            let id: String
-            let name: String
-            let type: String
+        /// Timestamp (timeIntervalSince1970) of the last heartbeat from the main app
+        /// Written periodically by the main app; read by the extension to detect crashes
+        static var appLastHeartbeat: TimeInterval {
+            get { appGroupDefaults?.double(forKey: "\(base).appLastHeartbeat") ?? 0 }
+            set { appGroupDefaults?.set(newValue, forKey: "\(base).appLastHeartbeat") }
         }
         
-        private struct DeviceList: Codable {
-            let updated: TimeInterval
-            let devices: [DeviceEntry]
+        static var reachableDevices: [[String: String]] {
+            get { appGroupDefaults?.object(forKey: "\(base).reachableDevices") as? [[String: String]] ?? [] }
+            set { appGroupDefaults?.set(newValue, forKey: "\(base).reachableDevices") }
         }
         
-        private static let devicesPasteboard = NSPasteboard.Name(mainBundleId + ".share.devices")
-        private static let statusPasteboard = NSPasteboard.Name(mainBundleId + ".share.status")
-        private static let dataType = NSPasteboard.PasteboardType(mainBundleId + ".share.data")
-        
-        // MARK: Devices
-        
-        /// App: the devices the extension may offer (also refreshed periodically as a heartbeat)
-        static func publish(devices: [DeviceEntry]) {
-            write(DeviceList(updated: Date().timeIntervalSince1970, devices: devices), to: devicesPasteboard)
+        static var selectedDevice: String? {
+            get { appGroupDefaults?.string(forKey: "\(base).selectedDevice") }
+            set { appGroupDefaults?.set(newValue, forKey: "\(base).selectedDevice") }
         }
         
-        /// Extension: the published devices, or nil when the app hasn't published recently (not running)
-        static func readDevices(maxAge: TimeInterval = 90) -> [DeviceEntry]? {
-            guard let list: DeviceList = read(from: devicesPasteboard),
-                  Date().timeIntervalSince1970 - list.updated < maxAge else { return nil }
-            return list.devices
+        static var fileBookmarkData: [Data]? {
+            get { appGroupDefaults?.array(forKey: "\(base).fileBookmarkData") as? [Data] }
+            set { appGroupDefaults?.set(newValue, forKey: "\(base).fileBookmarkData") }
         }
         
-        // MARK: Statuses
-        
-        /// App: "success" or "failed" for a device the extension sent to
-        static func publish(status: String, forDevice deviceId: String) {
-            var statuses = readStatuses()
-            statuses[deviceId] = status
-            write(statuses, to: statusPasteboard)
-            CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                                 CFNotificationName(DarwinNotifications.shareStatus as CFString), nil, nil, true)
+        static var sharedTexts: [String]? {
+            get { appGroupDefaults?.stringArray(forKey: "\(base).sharedTexts") }
+            set { appGroupDefaults?.set(newValue, forKey: "\(base).sharedTexts") }
         }
         
-        static func readStatuses() -> [String: String] {
-            read(from: statusPasteboard) ?? [:]
-        }
-        
-        /// Extension: forget the previous status for a device before sending to it again
-        static func clearStatus(forDevice deviceId: String) {
-            var statuses = readStatuses()
-            guard statuses.removeValue(forKey: deviceId) != nil else { return }
-            write(statuses, to: statusPasteboard)
-        }
-        
-        // MARK: Requests
-        
-        struct Request {
-            let deviceId: String
-            /// Files that follow in a separate open
-            let fileCount: Int
-            let texts: [String]
-        }
-        
-        static func url(for request: Request) -> URL? {
-            var components = URLComponents()
-            components.scheme = urlScheme
-            components.host = "send"
-            components.queryItems = [
-                URLQueryItem(name: "device", value: request.deviceId),
-                URLQueryItem(name: "files", value: String(request.fileCount)),
-            ] + request.texts.map { URLQueryItem(name: "text", value: $0) }
-            return components.url
-        }
-        
-        static func request(from url: URL) -> Request? {
-            guard url.scheme == urlScheme, url.host == "send",
-                  let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
-                  let deviceId = items.first(where: { $0.name == "device" })?.value else { return nil }
-            let fileCount = items.first(where: { $0.name == "files" })?.value.flatMap(Int.init) ?? 0
-            let texts = items.filter { $0.name == "text" }.compactMap(\.value)
-            return Request(deviceId: deviceId, fileCount: fileCount, texts: texts)
-        }
-        
-        // MARK: Pasteboard storage
-        
-        private static func write<T: Encodable>(_ value: T, to name: NSPasteboard.Name) {
-            guard let data = try? JSONEncoder().encode(value) else { return }
-            let pasteboard = NSPasteboard(name: name)
-            pasteboard.clearContents()
-            pasteboard.setData(data, forType: dataType)
-        }
-        
-        private static func read<T: Decodable>(from name: NSPasteboard.Name) -> T? {
-            guard let data = NSPasteboard(name: name).data(forType: dataType) else { return nil }
-            return try? JSONDecoder().decode(T.self, from: data)
+        /// Transfer status per device for the current share session
+        /// Maps device ID -> status: "success", "failed". Written by main app, read by extension
+        static var transferStatuses: [String: String]? {
+            get { appGroupDefaults?.dictionary(forKey: "\(base).transferStatuses") as? [String: String] }
+            set { appGroupDefaults?.set(newValue, forKey: "\(base).transferStatuses") }
         }
     }
     

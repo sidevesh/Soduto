@@ -87,7 +87,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
         
         self.updateValidDevices()
         self.startHeartbeat()
-        registerShareExtensionObserver()
+        let notificationName = AppDefaultsStore.DarwinNotifications.shareHandoff as CFString
+        let notificationCenter = CFNotificationCenterGetDarwinNotifyCenter()
+        registerShareExtensionObserver(notificationCenter, notificationName)
         
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(wakeUpListener(_:)), name: NSWorkspace.didWakeNotification, object: nil)
         observeLifecycleForDiagnostics()
@@ -106,7 +108,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
         Logger.general.notice("Soduto is quitting normally")
         UserDefaults.standard.removeObject(forKey: Self.lastAliveKey)
         heartbeatTimer?.invalidate()
-        AppDefaultsStore.ShareBridge.publish(devices: [])
+        AppDefaultsStore.ShareExtension.appLastHeartbeat = 0
+        AppDefaultsStore.ShareExtension.reachableDevices = []
     }
     
     
@@ -180,12 +183,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
     private func startHeartbeat() {
         let lastAlive = UserDefaults.standard.double(forKey: Self.lastAliveKey)
         previousLastAlive = lastAlive > 0 ? lastAlive : nil
+        AppDefaultsStore.ShareExtension.appLastHeartbeat = Date().timeIntervalSince1970
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastAliveKey)
         Self.logMemoryFootprint("at launch")
         var ticks = 0
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
-            // Republish so Soduto Share knows the app is running
-            AppDelegate.shared().updateValidDevices()
+            AppDefaultsStore.ShareExtension.appLastHeartbeat = Date().timeIntervalSince1970
             UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastAliveKey)
             ticks += 1
             if ticks % 20 == 0 { Self.logMemoryFootprint("periodic") }  // every 10 minutes
@@ -242,9 +245,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
     
     public func updateValidDevices() {
         self.validDevices = deviceManager.pairedRechableDevices
-        AppDefaultsStore.ShareBridge.publish(devices: self.validDevices.map {
-            .init(id: $0.id, name: $0.name, type: $0.type.rawValue)
-        })
+        let deviceEntries: [[String: String]] = self.validDevices.map { [
+            "id": $0.id,
+            "name": $0.name,
+            "type": $0.type.rawValue
+        ] }
+        AppDefaultsStore.ShareExtension.reachableDevices = deviceEntries
     }
     
     static func shared() -> AppDelegate {
@@ -252,96 +258,118 @@ class AppDelegate: NSObject, NSApplicationDelegate, DeviceManagerDelegate {
         return delegate
     }
     
-    /// Soduto Share asks for the device list with a Darwin notification
-    fileprivate func registerShareExtensionObserver() {
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
-            DispatchQueue.main.async { AppDelegate.shared().updateValidDevices() }
-        }, AppDefaultsStore.DarwinNotifications.shareRequestDevices as CFString, nil, .deliverImmediately)
+    /// Darwin Notification Center Observer to observe notifications from Share Extension
+    fileprivate func registerShareExtensionObserver(_ notificationCenter: CFNotificationCenter?, _ notificationName: CFString) {
+        CFNotificationCenterAddObserver(notificationCenter, nil, { _, _, _, _, _ in
+            AppDelegate.shared().handleShareExtensionTrigger()
+        }, notificationName, nil, .deliverImmediately)
     }
     
-    // MARK: Opening (Soduto Share, Open With)
-    
-    /// A Soduto Share request waiting for its files, which arrive in a separate open
-    private struct PendingShare {
-        let deviceId: Device.Id
-        var remainingFiles: Int
-        let date: Date
-    }
-    private var pendingShare: PendingShare?
-    
-    func application(_ application: NSApplication, open urls: [URL]) {
-        var files: [URL] = []
-        for url in urls {
-            if let request = AppDefaultsStore.ShareBridge.request(from: url) {
-                handleShareRequest(request)
-            } else if url.isFileURL {
-                files.append(url)
+    private func handleShareExtensionTrigger() {
+        guard let deviceId = AppDefaultsStore.ShareExtension.selectedDevice, !deviceId.isEmpty else {
+            UserNotificationHelper.show(title: "Soduto Share", body: "No target device was specified. Please try sharing again.", sound: true, id: "NoDeviceSelected")
+            return
+        }
+        
+        let bookmarks = AppDefaultsStore.ShareExtension.fileBookmarkData ?? []
+        let texts = AppDefaultsStore.ShareExtension.sharedTexts ?? []
+        
+        guard !bookmarks.isEmpty || !texts.isEmpty else {
+            ShareService.reportExtensionTransferStatus(deviceId: deviceId, status: "failed")
+            UserNotificationHelper.show(title: "Soduto Share", body: "Nothing to share. Please try again.", sound: true, id: "NoShareData")
+            return
+        }
+        
+        guard let shareService = self.serviceManager.service(ofType: ShareService.self) else {
+            ShareService.reportExtensionTransferStatus(deviceId: deviceId, status: "failed")
+            UserNotificationHelper.show(title: "Soduto Share", body: "Share service is not available. Please restart Soduto.", sound: true, id: "ShareServiceUnavailable")
+            return
+        }
+        
+        guard let device = self.deviceManager.device(withId: deviceId) else {
+            ShareService.reportExtensionTransferStatus(deviceId: deviceId, status: "failed")
+            UserNotificationHelper.show(title: "Soduto Share", body: "The selected device is no longer reachable.", sound: true, id: "DeviceUnreachable")
+            return
+        }
+        
+        // Pass 1: resolve all bookmarks into URLs without sending yet
+        // This lets us pre-count file uploads and register the batch BEFORE sending,
+        // so each packet can be stamped with `numberOfFiles` (protocol requirement)
+        var resolvedUrls: [URL] = []
+        var failedCount = 0
+        for data in bookmarks {
+            do {
+                var isStale = false
+                let url = try URL(resolvingBookmarkData: data, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &isStale)
+                resolvedUrls.append(url)
+            } catch {
+                failedCount += 1
+                Logger.general.error("Failed to resolve bookmark: \(error, privacy: .public)")
             }
         }
-        guard !files.isEmpty else { return }
         
-        if let pending = self.pendingShare, Date().timeIntervalSince(pending.date) < 60 {
-            self.pendingShare = nil
-            share(files: files, toDeviceWithId: pending.deviceId)
-        } else if validDevices.count == 1, let device = validDevices.first {
-            // Opened with Soduto from Finder ("Open With"): the only device it can go to
-            share(files: files, toDeviceWithId: device.id)
-        } else {
-            UserNotificationHelper.show(title: "Soduto", body: validDevices.isEmpty ? "No device is connected to send the files to." : "Choose a device: share the files with Soduto Share, or drop them on Soduto’s menu bar icon.", sound: true, id: "ChooseShareDevice")
-        }
-    }
-    
-    /// A request from Soduto Share: send its texts now; its files (if any) follow in a separate open
-    private func handleShareRequest(_ request: AppDefaultsStore.ShareBridge.Request) {
-        guard let shareService = self.serviceManager.service(ofType: ShareService.self),
-              let device = self.deviceManager.device(withId: request.deviceId) else {
-            ShareService.reportExtensionTransferStatus(deviceId: request.deviceId, status: "failed")
-            UserNotificationHelper.show(title: "Soduto Share", body: "The selected device is no longer reachable.", sound: true, id: "DeviceUnreachable")
-            return
-        }
-        for text in request.texts {
-            shareService.shareFromExtension(text: text, to: device)
-        }
-        if request.fileCount > 0 {
-            self.pendingShare = PendingShare(deviceId: device.id, remainingFiles: request.fileCount, date: Date())
-        } else {
-            ShareService.reportExtensionTransferStatus(deviceId: device.id, status: "success")
-        }
-    }
-    
-    /// Sends files Soduto was given access to (by Soduto Share or Open With)
-    private func share(files: [URL], toDeviceWithId deviceId: Device.Id) {
-        guard let shareService = self.serviceManager.service(ofType: ShareService.self),
-              let device = self.deviceManager.device(withId: deviceId) else {
-            ShareService.reportExtensionTransferStatus(deviceId: deviceId, status: "failed")
-            UserNotificationHelper.show(title: "Soduto Share", body: "The selected device is no longer reachable.", sound: true, id: "DeviceUnreachable")
-            return
-        }
-        
-        let fileUrls = files.filter { url in
+        // Pre-count valid file uploads (non-directory file: URLs that ShareService will queue)
+        let fileUrls = resolvedUrls.filter { url -> Bool in
             var isDirectory: ObjCBool = false
-            return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && !isDirectory.boolValue
+            return url.isFileURL
+                && FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+                && !isDirectory.boolValue
         }
-        guard !fileUrls.isEmpty else {
-            ShareService.reportExtensionTransferStatus(deviceId: deviceId, status: "failed")
-            UserNotificationHelper.show(title: "Soduto Share", body: "Folders can’t be sent; choose files instead.", sound: true, id: "NoShareData")
-            return
-        }
-        let totalBytes = fileUrls.reduce(Int64(0)) { sum, url in
+        let estimatedTotalBytes = fileUrls.reduce(Int64(0)) { sum, url in
             sum + ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
         }
-        // Register the batch before sending, so each packet carries numberOfFiles (protocol requirement)
-        shareService.beginTrackingExtensionUploads(deviceId: deviceId, fileCount: fileUrls.count, totalBytes: totalBytes)
         
-        var queued = 0
-        for url in fileUrls {
-            if case .fileUploadQueued = shareService.shareFromExtension(url: url, to: device) {
-                queued += 1
+        // Register batch BEFORE sending so shareFromExtension can stamp numberOfFiles on packets
+        //
+        // Pre-count vs actual-queue mismatch: our filter (fileExists + !isDirectory) mirrors the
+        // checks inside dataPacket(forFileUrl:), with one exception: InputStream(url:) could
+        // theoretically return nil for a file that exists. If that happened, the batch would be
+        // registered for N but only (N - 1) packets sent, leaving isDone unreachable
+        // In practice this is not a real risk: the Share extension uses Security-scoped bookmarks,
+        // and a successful bookmark resolution guarantees OS-level read access, so InputStream
+        // creation will always succeed for any URL that passes our filter
+        if !fileUrls.isEmpty {
+            shareService.beginTrackingExtensionUploads(deviceId: deviceId, fileCount: fileUrls.count, totalBytes: estimatedTotalBytes)
+        }
+        
+        if failedCount > 0 {
+            let message = failedCount == bookmarks.count
+                ? "Soduto Share doesn't have permissions to read files in this directory. Drag the file to the menu bar icon to share!"
+                : "\(failedCount) of \(bookmarks.count) items could not be shared."
+            UserNotificationHelper.show(title: "Soduto Share", subtitle: "Oops! We got lost!", body: message, sound: true, id: "FileAccessDenied")
+        }
+        
+        // Pass 2: send all resolved URLs
+        var fileUploadCount = 0
+        for url in resolvedUrls {
+            switch shareService.shareFromExtension(url: url, to: device) {
+            case .fileUploadQueued:    fileUploadCount += 1
+            case .sentWithoutPayload:  break
+            case .skipped:             failedCount += 1
             }
         }
-        // Uploads report their own completion; if none could start, say so now
-        if queued == 0 {
-            ShareService.reportExtensionTransferStatus(deviceId: deviceId, status: "failed")
+        
+        // Process shared texts
+        for text in texts {
+            shareService.shareFromExtension(text: text, to: device)
         }
+        
+        // File uploads are tracked by ShareService,it reports the real completion status via
+        // Darwin notification when all uploads finish. Non-file transfers complete immediately
+        if fileUploadCount == 0 {
+            if failedCount == bookmarks.count && !bookmarks.isEmpty && texts.isEmpty {
+                // Everything failed, nothing was sent
+                ShareService.reportExtensionTransferStatus(deviceId: deviceId, status: "failed")
+            } else {
+                // Only URLs/texts were shared (no file payloads) — they complete immediately
+                ShareService.reportExtensionTransferStatus(deviceId: deviceId, status: "success")
+            }
+        }
+        
+        // Clear consumed data (NOT transferStatuses, extension needs them)
+        // Each device reads only its own transferStatus entry by ID & old entries are inert and cleared on extension deinit
+        AppDefaultsStore.ShareExtension.fileBookmarkData = nil
+        AppDefaultsStore.ShareExtension.sharedTexts = nil
+        AppDefaultsStore.ShareExtension.selectedDevice = nil
     }
 }
